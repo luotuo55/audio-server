@@ -1,4 +1,4 @@
 {
-    "api_key": "123456789",
-    "admin_key": "432126"
+    "api_key": "arPmwKIS3vDRn8kLyesSQw6bZGZVkPbHDEAnH9avi7w",
+    "admin_key": "Dgp*432126"
 } 

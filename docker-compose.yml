@@ -2,8 +2,7 @@ version: '3.8'
 
 services:
   audio-server:
-    build: .
-    image: audio-server:1.6
+    image: dingguoping55/audio-server:1.61
     container_name: audio-server
     ports:
       - "8000:8000"
@@ -11,5 +10,10 @@ services:
       - ./voice:/app/voice
       - ./logs:/app/logs
     environment:
-      - VERSION=1.6
-    restart: unless-stopped 
+      - PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3 

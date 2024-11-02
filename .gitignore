@@ -27,6 +27,8 @@ logs/
 upload_records.txt
 server_logs.txt
 config.json
+API_KEY.txt
+*.key
 
 # 系统文件
 .DS_Store
@@ -36,4 +38,4 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-*.swo 
+*.swo

@@ -2,9 +2,10 @@
 FROM python:3.9-slim
 
 # 设置版本信息
-LABEL version="1.6" \
+LABEL version="1.61" \
       description="音频文件服务器" \
-      maintainer="Your Name <your.email@example.com>"
+      maintainer="luotuo55" \
+      repository="https://github.com/luotuo55/audio-server"
 
 # 设置工作目录
 WORKDIR /app
@@ -16,7 +17,7 @@ COPY . /app/
 RUN mkdir -p /app/voice /app/logs
 
 # 设置环境变量
-ENV VERSION=1.6 \
+ENV VERSION=1.61 \
     PYTHONUNBUFFERED=1 \
     PORT=8000
 
