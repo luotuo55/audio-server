@@ -18,7 +18,7 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'public')
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'voice')
 
 # 版本信息
-VERSION = "1.6"
+VERSION = "1.61"
 VERSION_INFO = {
     'version': VERSION,
     'release_date': '2024-02-11',
@@ -27,7 +27,8 @@ VERSION_INFO = {
         '域名白名单管理',
         '文件自动清理',
         '操作日志记录',
-        '管理后台功能'
+        '管理后台功能',
+        '修复日志记录问题'
     ]
 }
 
