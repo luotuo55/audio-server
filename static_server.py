@@ -424,7 +424,7 @@ class CustomHandler(BaseHTTPRequestHandler):
     def handle_admin_verify(self):
         """处理管理员验证请求"""
         try:
-            print("\n=== 验证管理密钥 ===")
+            print("\n=== 验证管理��钥 ===")
             provided_key = self.headers.get('X-Admin-Key')
             
             print(f"收到验证请求:")
@@ -532,7 +532,7 @@ class CustomHandler(BaseHTTPRequestHandler):
             # 确保文件路径安全
             filepath = os.path.abspath(filepath)
             if not os.path.exists(filepath):
-                print(f"���件不存在: {filepath}")
+                print(f"件不存在: {filepath}")
                 self.send_error(404, "File not found")
                 return
                 
@@ -763,6 +763,13 @@ class CustomHandler(BaseHTTPRequestHandler):
             filename = os.path.basename(self.path)
             print(f"删除文件: {filename}")
             
+            # 检查文件是否存在
+            file_path = os.path.join('voice', filename)
+            if not os.path.exists(file_path):
+                print(f"物理文件不存在: {file_path}")
+                self.send_json_error(404, "File not found")
+                return
+                
             # 连接数据库
             conn = sqlite3.connect('audio_server.db')
             cursor = conn.cursor()
@@ -773,41 +780,67 @@ class CustomHandler(BaseHTTPRequestHandler):
                 file_record = cursor.fetchone()
                 
                 if not file_record:
-                    print("文件不存在或已删除")
+                    print("数据库记录不存在或已删除")
                     self.send_json_error(404, "File not found or already deleted")
                     return
                     
                 file_id = file_record[0]
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
-                # 更新文件状态
+                # 1. 删除物理文件
+                try:
+                    os.remove(file_path)
+                    print(f"物理文件删除成功: {file_path}")
+                    physical_delete_success = True
+                except Exception as e:
+                    print(f"物理文件删除失败: {e}")
+                    physical_delete_success = False
+                
+                # 2. 更新数据库状态
                 cursor.execute("""
                     UPDATE audio_files 
                     SET status = 'deleted', 
                         is_deleted = 1,
-                        delete_time = datetime('now', 'localtime')
+                        delete_time = ?
                     WHERE id = ?
-                """, (file_id,))
+                """, (current_time, file_id))
                 
-                # 记录操作日志
+                # 3. 记录操作日志
+                details = {
+                    'filename': filename,
+                    'physical_delete': physical_delete_success
+                }
+                
                 cursor.execute("""
                     INSERT INTO operation_logs (
                         file_id,
                         operation_type,
+                        operation_time,
                         operator_ip,
                         details
-                    ) VALUES (?, 'delete', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?)
                 """, (
                     file_id,
+                    'delete',
+                    current_time,
                     self.client_address[0],
-                    json.dumps({'filename': filename})
+                    json.dumps(details)
                 ))
                 
                 conn.commit()
                 print("数据库更新成功")
                 
+                # 4. 返回响应
+                response_message = 'File deleted successfully'
+                if not physical_delete_success:
+                    response_message += ' (database only)'
+                    
                 self.send_json_response({
                     'code': 200,
-                    'message': 'File deleted successfully'
+                    'message': response_message,
+                    'data': {
+                        'physical_delete': physical_delete_success
+                    }
                 })
                 
             finally:
@@ -995,7 +1028,7 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(f"- 文件名: {filename}")
             print(f"- 状态: {status}")
             print(f"- 开始日期: {start_date}")
-            print(f"- 结束日期: {end_date}")
+            print(f"- 束日期: {end_date}")
             
             # 连接数据库
             conn = sqlite3.connect('audio_server.db')
@@ -1225,7 +1258,7 @@ class Logger:
             self.logger.error(message)
 
     def debug(self, message):
-        """记录调���日志"""
+        """记录调日志"""
         self.logger.debug(message)
 
     def warning(self, message):
