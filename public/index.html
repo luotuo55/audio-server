@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>音频文件上传</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .upload-container {
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+        .progress {
+            margin-top: 10px;
+            padding: 5px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            background-color: #f8f8f8;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+        .footer .separator {
+            margin: 0 10px;
+            color: #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="upload-container">
+        <h2>音频文件上传</h2>
+        <div>
+            <input type="file" accept="audio/*" id="audioFile">
+            <button onclick="uploadFile()" id="uploadButton">上传</button>
+        </div>
+        <div id="progress" class="progress" style="display: none;">
+            上传中...
+        </div>
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        async function uploadFile() {
+            const fileInput = document.getElementById('audioFile');
+            const resultDiv = document.getElementById('result');
+            const progressDiv = document.getElementById('progress');
+            
+            if (!fileInput.files.length) {
+                resultDiv.innerHTML = '<div class="error">请选择文件</div>';
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                progressDiv.innerHTML = '上传中...';
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            <p>上传成功！</p>
+                            <p>文件URL: <a href="${data.data.file_url}" target="_blank">${data.data.file_url}</a></p>
+                            <p>过期时间: ${data.data.expires_in}</p>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `<div class="error">上传失败: ${data.message}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">上传失败: ${error.message}</div>`;
+            } finally {
+                progressDiv.innerHTML = '';
+                fileInput.value = '';  // 清除文件选择
+            }
+        }
+
+        // 文件选择时清除结果
+        document.getElementById('audioFile').addEventListener('change', function() {
+            document.getElementById('result').innerHTML = '';
+        });
+    </script>
+
+    <div class="footer">
+        <span>音频文件服务器 V1.6</span>
+        <span class="separator">|</span>
+        <span>© 2024</span>
+    </div>
+</body>
+</html>

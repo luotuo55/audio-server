@@ -1,0 +1,14 @@
+{
+    "allowed_origins": [
+        "http://example.com",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "www.52ai.fun"
+    ],
+    "domain_patterns": [
+        "^https?://[a-zA-Z0-9-]+\\.example\\.com$",
+        "^http://localhost:[0-9]+$",
+        "^http://127\\.0\\.0\\.1:[0-9]+$"
+    ],
+    "admin_key": "1234567890"
+}

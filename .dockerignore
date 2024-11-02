@@ -1,0 +1,7 @@
+voice/
+*.pyc
+__pycache__
+.git
+.gitignore
+
+
