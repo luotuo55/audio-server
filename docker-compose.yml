@@ -1,8 +1,8 @@
-version: '3.8'
+version: '3'
 
 services:
   audio-server:
-    image: dingguoping55/audio-server:1.61
+    image: dingguoping55/audio-server:1.7
     container_name: audio-server
     ports:
       - "8000:8000"

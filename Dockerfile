@@ -2,7 +2,7 @@
 FROM python:3.9-slim
 
 # 设置版本信息
-LABEL version="1.61" \
+LABEL version="1.7" \
       description="音频文件服务器" \
       maintainer="luotuo55" \
       repository="https://github.com/luotuo55/audio-server"
@@ -17,7 +17,7 @@ COPY . /app/
 RUN mkdir -p /app/voice /app/logs
 
 # 设置环境变量
-ENV VERSION=1.61 \
+ENV VERSION=1.7 \
     PYTHONUNBUFFERED=1 \
     PORT=8000
 

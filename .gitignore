@@ -20,15 +20,13 @@ var/
 .installed.cfg
 *.egg
 
-# 项目特定文件
+# 数据库文件
+*.db
+*.sqlite3
+
+# 音频文件
 voice/
-logs/
-*.log
-upload_records.txt
-server_logs.txt
-config.json
-API_KEY.txt
-*.key
+uploads/
 
 # 系统文件
 .DS_Store
@@ -39,3 +37,9 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# 日志
+*.log
+
+# 密钥文件（可选，如果你想排除）
+# api_key.txt 

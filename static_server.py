@@ -18,7 +18,7 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'public')
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'voice')
 
 # 版本信息
-VERSION = "1.61"
+VERSION = "1.7"
 VERSION_INFO = {
     'version': VERSION,
     'release_date': '2024-02-11',
@@ -250,6 +250,10 @@ def handle_errors(func):
     return wrapper
 
 class CustomHandler(BaseHTTPRequestHandler):
+    """HTTP请求处理器"""
+    VERSION = "1.7"
+    SERVER_NAME = f"Audio Server v{VERSION}"
+    
     config_manager = ConfigManager()
     logger = None
     db_manager = None
@@ -425,7 +429,7 @@ class CustomHandler(BaseHTTPRequestHandler):
     def handle_admin_verify(self):
         """处理管理员验证请求"""
         try:
-            print("\n=== 验证管理��钥 ===")
+            print("\n=== 验证管理钥 ===")
             provided_key = self.headers.get('X-Admin-Key')
             
             print(f"收到验证请求:")
