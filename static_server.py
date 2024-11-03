@@ -487,21 +487,49 @@ class CustomHandler(BaseHTTPRequestHandler):
     def verify_origin(self):
         """验证请求来源"""
         try:
-            if not hasattr(self, 'config_manager') or self.config_manager is None:
-                print("配置管理器未初始化")
+            print("\n=== 验证请求来源 ===")
+            
+            # 获取请求来源
+            origin = self.headers.get('Origin')
+            referer = self.headers.get('Referer')
+            request_source = origin or referer
+            
+            print(f"请求来源: {request_source}")
+            
+            if not request_source:
+                print("无法获取请求来源")
                 return False
                 
-            origin = self.headers.get('Origin')
-            if not origin:
-                # 如果是直接访问（没有Origin头），允许本地求
-                client_ip = self.client_address[0]
-                print(f"直接问 - 客户端IP: {client_ip}")
-                return client_ip in ['127.0.0.1', 'localhost']
-                
-            return self.config_manager.is_origin_allowed(origin)
+            # 解析域名，去除端口号
+            parsed_url = urlparse(request_source)
+            request_domain = parsed_url.netloc.split(':')[0]  # 只取域名部分，去除端口
+            print(f"解析的域名: {request_domain}")
             
+            # 从数据库获取白名单
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute("""
+                    SELECT domain 
+                    FROM whitelist 
+                    WHERE status = 1
+                """)
+                
+                allowed_domains = [row[0] for row in cursor.fetchall()]
+                print(f"允许的域名: {allowed_domains}")
+                
+                # 验证结果
+                is_allowed = request_domain in allowed_domains
+                print(f"验证结果: {'允许' if is_allowed else '禁止'}")
+                
+                return is_allowed
+                
+            finally:
+                conn.close()
+                
         except Exception as e:
-            print(f"验证来源时出错: {e}")
+            print(f"验证请求来源时出错: {e}")
             print(traceback.format_exc())
             return False
 
@@ -516,7 +544,18 @@ class CustomHandler(BaseHTTPRequestHandler):
             path = parsed_url.path
             
             # 路由处理
-            if path == '/':
+            if path.startswith('/voice/'):
+                filename = os.path.basename(path)
+                try:
+                    self.serve_audio_file(filename)
+                except Exception as e:
+                    print(f"处理音频文件时出错: {e}")
+                    try:
+                        error_message = str(e).encode('utf-8', errors='ignore').decode('utf-8')
+                        self.send_error(500, error_message)
+                    except:
+                        self.send_error(500, "Internal Server Error")
+            elif path == '/':
                 self.serve_file('public/index.html', 'text/html')
             elif path == '/admin':
                 self.serve_file('public/admin.html', 'text/html')
@@ -530,16 +569,16 @@ class CustomHandler(BaseHTTPRequestHandler):
                 self.handle_logs_query()
             elif path == '/api/admin/logs/export':
                 self.handle_logs_export()
-            elif path.startswith('/voice/'):
-                filename = os.path.basename(path)
-                self.serve_audio_file(filename)
             else:
                 self.send_error(404, "File not found")
                 
         except Exception as e:
             print(f"处理GET请求时出错: {e}")
-            print(traceback.format_exc())
-            self.send_error(500, str(e))
+            try:
+                error_message = str(e).encode('utf-8', errors='ignore').decode('utf-8')
+                self.send_error(500, error_message)
+            except:
+                self.send_error(500, "Internal Server Error")
 
     def serve_file(self, filepath, content_type):
         """服务静态文件"""
@@ -683,7 +722,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(response, ensure_ascii=False).encode('utf-8'))
                 print(f"文件删除成功: {file_path}")
             else:
-                print(f"要删除的文件不存在: {file_path}")
+                print(f"要除的文件不存在: {file_path}")
                 self.send_error(404, "File not found")
         except Exception as e:
             print(f"删除文件失败: {e}")
@@ -706,7 +745,7 @@ class CustomHandler(BaseHTTPRequestHandler):
             
             action = data.get('action')
             
-            # 处理列表请求
+            # 理列表请求
             if action == 'list':
                 response = {
                     'allowed_origins': list(self.config_manager.allowed_origins),
@@ -804,7 +843,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 file_info = cursor.fetchone()
                 if not file_info:
                     print(f"文件不存在: {filename}")
-                    self.send_json_error(404, "文件不存在")
+                    self.send_json_error(404, "文件��存在")
                     return
                     
                 file_id, filename, original_filename, is_deleted = file_info
@@ -1020,6 +1059,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         try:
             print(f"\n=== 服务音频文件: {filename} ===")
             
+            # 检查文件是否存在
             file_path = os.path.join('voice', filename)
             if not os.path.exists(file_path):
                 print(f"文件不存在: {file_path}")
@@ -1043,14 +1083,24 @@ class CustomHandler(BaseHTTPRequestHandler):
                     chunk = f.read(chunk_size)
                     if not chunk:
                         break
-                    self.wfile.write(chunk)
+                    try:
+                        self.wfile.write(chunk)
+                    except (ConnectionAbortedError, BrokenPipeError):
+                        print("客户端连接中断")
+                        return
+                    except Exception as e:
+                        print(f"发送数据时出错: {e}")
+                        return
                     
             print(f"文件发送成功: {filename}")
             
         except Exception as e:
             print(f"服务音频文件时出错: {e}")
-            print(traceback.format_exc())
-            self.send_error(500, str(e))
+            error_msg = "Internal Server Error"
+            try:
+                self.send_error(500, error_msg)
+            except:
+                pass
 
     def do_OPTIONS(self):
         """处理OPTIONS请求（用于CORS预检）"""
@@ -1145,7 +1195,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 conn.close()
                 
         except Exception as e:
-            print(f"查询日志时出错: {e}")
+            print(f"查询志时出错: {e}")
             print(traceback.format_exc())
             self.send_json_error(500, str(e))
 
@@ -1745,7 +1795,7 @@ class DatabaseManager:
             conn.close()
     
     def add_audio_file(self, file_data):
-        """添加音频文件记录"""
+        """添加音频文记录"""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         
