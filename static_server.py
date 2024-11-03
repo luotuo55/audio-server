@@ -515,11 +515,6 @@ class CustomHandler(BaseHTTPRequestHandler):
             parsed_url = urlparse(self.path)
             path = parsed_url.path
             
-            # 添加必要的导入
-            import io
-            import csv
-            from datetime import datetime
-            
             # 路由处理
             if path == '/':
                 self.serve_file('public/index.html', 'text/html')
@@ -777,6 +772,10 @@ class CustomHandler(BaseHTTPRequestHandler):
                 except ValueError:
                     print(f"无效的白名单ID: {whitelist_id}")
                     self.send_json_error(400, "Invalid whitelist ID")
+            # 处理文件删除
+            elif path.startswith('/api/admin/delete/'):
+                filename = path.split('/')[-1]
+                self.handle_file_delete(filename)
             else:
                 print(f"未知的DELETE请求路径: {path}")
                 self.send_error(404, "Not Found")
@@ -785,6 +784,96 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(f"处理DELETE请求时出错: {e}")
             print(traceback.format_exc())
             self.send_error(500, str(e))
+
+    def handle_file_delete(self, filename):
+        """处理文件删除请求"""
+        try:
+            print(f"\n=== 处理文件删除: {filename} ===")
+            
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                # 检查文件是否存在
+                cursor.execute("""
+                    SELECT id, filename, original_filename, is_deleted
+                    FROM audio_files
+                    WHERE filename = ?
+                """, (filename,))
+                
+                file_info = cursor.fetchone()
+                if not file_info:
+                    print(f"文件不存在: {filename}")
+                    self.send_json_error(404, "文件不存在")
+                    return
+                    
+                file_id, filename, original_filename, is_deleted = file_info
+                
+                if is_deleted:
+                    print(f"文件已被删除: {filename}")
+                    self.send_json_error(400, "文件已被删除")
+                    return
+                    
+                # 物理文件路径
+                file_path = os.path.join('voice', filename)
+                
+                # 删除物理文件
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"物理文件删除成功: {file_path}")
+                else:
+                    print(f"物理文件不存在: {file_path}")
+                
+                # 更新数据库记录
+                cursor.execute("""
+                    UPDATE audio_files
+                    SET is_deleted = 1,
+                        delete_time = datetime('now')
+                    WHERE id = ?
+                """, (file_id,))
+                
+                # 记录删除操作
+                cursor.execute("""
+                    INSERT INTO operation_logs (
+                        operation_type,
+                        operator_ip,
+                        file_id,
+                        details,
+                        operation_time
+                    ) VALUES (?, ?, ?, ?, datetime('now'))
+                """, (
+                    'delete',
+                    self.client_address[0],
+                    file_id,
+                    json.dumps({
+                        'filename': filename,
+                        'original_filename': original_filename
+                    })
+                ))
+                
+                conn.commit()
+                print(f"文件删除成功: {filename}")
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': '删除成功',
+                    'data': {
+                        'filename': filename,
+                        'original_filename': original_filename
+                    }
+                })
+                
+            except sqlite3.Error as e:
+                print(f"数据库操作错误: {e}")
+                conn.rollback()
+                self.send_json_error(500, f"数据库错误: {str(e)}")
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"删除文件时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
 
     def handle_whitelist_delete(self, whitelist_id):
         """处理删除白名单请求"""
@@ -853,7 +942,7 @@ class CustomHandler(BaseHTTPRequestHandler):
             self.send_json_error(500, str(e))
 
     def handle_file_play(self):
-        """处理文件播放记录"""
+        """处理文件播放请求"""
         try:
             print("\n=== 处理文件播放 ===")
             
@@ -864,43 +953,58 @@ class CustomHandler(BaseHTTPRequestHandler):
                 return
                 
             # 获取文件名
-            filename = os.path.basename(self.path)
+            filename = self.path.split('/')[-1]
             print(f"播放文件: {filename}")
             
-            # 连接数据库
             conn = sqlite3.connect('audio_server.db')
             cursor = conn.cursor()
             
             try:
-                # 检查文件是否存在
-                cursor.execute("SELECT id FROM audio_files WHERE filename = ? AND status = 'active'", (filename,))
-                file_record = cursor.fetchone()
+                # 获取文件信息
+                cursor.execute("""
+                    SELECT id, filename, original_filename
+                    FROM audio_files
+                    WHERE filename = ? AND is_deleted = 0
+                """, (filename,))
                 
-                if not file_record:
-                    print("文件不存在或已删除")
-                    self.send_json_error(404, "File not found or deleted")
+                file_info = cursor.fetchone()
+                if not file_info:
+                    print(f"文件不存在: {filename}")
+                    self.send_json_error(404, "文件不存在")
                     return
                     
-                # 记录操作日志
+                file_id, filename, original_filename = file_info
+                
+                # 记录播放操作
                 cursor.execute("""
                     INSERT INTO operation_logs (
-                        file_id,
                         operation_type,
                         operator_ip,
-                        details
-                    ) VALUES (?, 'play', ?, ?)
+                        file_id,
+                        details,
+                        operation_time
+                    ) VALUES (?, ?, ?, ?, datetime('now'))
                 """, (
-                    file_record[0],
+                    'play',
                     self.client_address[0],
-                    json.dumps({'filename': filename})
+                    file_id,
+                    json.dumps({
+                        'filename': filename,
+                        'original_filename': original_filename
+                    }),
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 ))
                 
                 conn.commit()
-                print("播放记录已保存")
+                print(f"记录播放操作成功: {filename}")
                 
                 self.send_json_response({
                     'code': 200,
-                    'message': 'Play record saved'
+                    'message': '播放请求成功',
+                    'data': {
+                        'filename': filename,
+                        'original_filename': original_filename
+                    }
                 })
                 
             finally:
@@ -910,6 +1014,43 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(f"记录文件播放时出错: {e}")
             print(traceback.format_exc())
             self.send_json_error(500, str(e))
+
+    def serve_audio_file(self, filename):
+        """服务音频文件"""
+        try:
+            print(f"\n=== 服务音频文件: {filename} ===")
+            
+            file_path = os.path.join('voice', filename)
+            if not os.path.exists(file_path):
+                print(f"文件不存在: {file_path}")
+                self.send_error(404, "File not found")
+                return
+                
+            # 获取文件大小
+            file_size = os.path.getsize(file_path)
+            
+            # 设置响应头
+            self.send_response(200)
+            self.send_header('Content-Type', 'audio/mpeg')
+            self.send_header('Content-Length', str(file_size))
+            self.send_header('Accept-Ranges', 'bytes')
+            self.end_headers()
+            
+            # 读取并发送文件内容
+            with open(file_path, 'rb') as f:
+                chunk_size = 8192  # 8KB chunks
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    
+            print(f"文件发送成功: {filename}")
+            
+        except Exception as e:
+            print(f"服务音频文件时出错: {e}")
+            print(traceback.format_exc())
+            self.send_error(500, str(e))
 
     def do_OPTIONS(self):
         """处理OPTIONS请求（用于CORS预检）"""
@@ -1373,7 +1514,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 
                 if not existing:
                     print(f"白名单记录不存在: {whitelist_id}")
-                    self.send_json_error(404, "记录不存在")
+                    self.send_json_error(404, "记不存在")
                     return
                     
                 # 更新记录
@@ -1512,7 +1653,7 @@ class Logger:
         )
         
         self.logger = logging.getLogger('AudioServer')
-        print("日志管理器初始化完成")
+        print("日志理器初始化完成")
 
     def info(self, message):
         """记录信息日志"""
@@ -1696,7 +1837,7 @@ class DatabaseManager:
             conn.close()
     
     def get_file_list(self, include_deleted=False):
-        """获取文件列��"""
+        """获取文件列表"""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         
