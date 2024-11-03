@@ -174,6 +174,139 @@
             z-index: 1001;
             display: none;
         }
+        .whitelist-list {
+            margin-top: 20px;
+        }
+        .form-section {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .form-section input {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .enable-btn {
+            background-color: #28a745;
+        }
+        .disable-btn {
+            background-color: #dc3545;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+        }
+        .nav-tabs {
+            margin: 20px 0;
+            border-bottom: 2px solid #ddd;
+            padding: 0 20px;
+        }
+        .tab-btn {
+            padding: 10px 20px;
+            margin-right: 10px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 16px;
+            position: relative;
+            color: #666;
+        }
+        .tab-btn:hover {
+            color: #007bff;
+        }
+        .tab-btn.active {
+            color: #007bff;
+            font-weight: bold;
+        }
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: #007bff;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        .whitelist-list table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .whitelist-list th,
+        .whitelist-list td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .whitelist-list th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        .whitelist-list tr:hover {
+            background-color: #f5f5f5;
+        }
+        .form-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .form-section input {
+            padding: 8px 12px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 200px;
+        }
+        .form-section button {
+            padding: 8px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .form-section button:hover {
+            background: #0056b3;
+        }
+        .enable-btn,
+        .disable-btn,
+        .delete-btn {
+            padding: 6px 12px;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        .enable-btn {
+            background: #28a745;
+        }
+        .disable-btn {
+            background: #dc3545;
+        }
+        .delete-btn {
+            background: #dc3545;
+        }
+        .enable-btn:hover {
+            background: #218838;
+        }
+        .disable-btn:hover,
+        .delete-btn:hover {
+            background: #c82333;
+        }
     </style>
 </head>
 <body>
@@ -193,38 +326,73 @@
                 <button onclick="logout()" class="logout-btn">登出</button>
             </div>
 
-            <div class="query-section">
-                <h3>文件查询</h3>
-                <div class="query-form">
-                    <input type="text" id="queryFilename" placeholder="文件名">
-                    <select id="queryStatus">
-                        <option value="">所有状态</option>
-                        <option value="active">正常</option>
-                        <option value="deleted">已删除</option>
-                    </select>
-                    <input type="date" id="queryStartDate">
-                    <input type="date" id="queryEndDate">
-                    <button onclick="queryFiles()">查询</button>
+            <div class="nav-tabs">
+                <button class="tab-btn active" onclick="switchTab('files')">文件管理</button>
+                <button class="tab-btn" onclick="switchTab('whitelist')">白名单管理</button>
+            </div>
+
+            <div class="content">
+                <div id="filesTab" class="tab-content active">
+                    <div class="query-section">
+                        <h3>文件查询</h3>
+                        <div class="query-form">
+                            <input type="text" id="queryFilename" placeholder="文件名">
+                            <select id="queryStatus">
+                                <option value="">所有状态</option>
+                                <option value="active">正常</option>
+                                <option value="deleted">已删除</option>
+                            </select>
+                            <input type="date" id="queryStartDate">
+                            <input type="date" id="queryEndDate">
+                            <button onclick="queryFiles()">查询</button>
+                        </div>
+                    </div>
+
+                    <div id="fileList">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>上传时间</th>
+                                    <th>文件名</th>
+                                    <th>原始文件名</th>
+                                    <th>大小</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fileListBody"></tbody>
+                        </table>
+                    </div>
+
+                    <div id="statusMessage" class="status-message"></div>
+                </div>
+
+                <div id="whitelistTab" class="tab-content">
+                    <h2>域名白名单管理</h2>
+                    
+                    <div class="form-section">
+                        <input type="text" id="domainInput" placeholder="输入域名">
+                        <input type="text" id="descriptionInput" placeholder="描述（可选）">
+                        <button onclick="addWhitelist()">添加域名</button>
+                    </div>
+                    
+                    <div class="whitelist-list">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>域名</th>
+                                    <th>描述</th>
+                                    <th>状态</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="whitelistTable">
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-
-            <div id="fileList">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>上传时间</th>
-                            <th>文件名</th>
-                            <th>原始文件名</th>
-                            <th>大小</th>
-                            <th>状态</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="fileListBody"></tbody>
-                </table>
-            </div>
-
-            <div id="statusMessage" class="status-message"></div>
         </div>
     </div>
 
@@ -616,6 +784,174 @@
         function closeModal(closeBtn) {
             closeBtn.closest('.modal').remove();
         }
+
+        async function loadWhitelist() {
+            try {
+                const response = await fetch('/api/admin/whitelist', {
+                    headers: {
+                        'X-Admin-Key': adminKey
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('获取白名单失败');
+                }
+                
+                const result = await response.json();
+                if (result.code === 200) {
+                    displayWhitelist(result.data);
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error('加载白名单出错:', error);
+                showMessage(error.message, 'error');
+            }
+        }
+
+        function displayWhitelist(data) {
+            const table = document.getElementById('whitelistTable');
+            table.innerHTML = data.map(item => `
+                <tr>
+                    <td>${item.domain}</td>
+                    <td>${item.description || '-'}</td>
+                    <td>${item.status ? '启用' : '禁用'}</td>
+                    <td>${formatDate(item.create_time)}</td>
+                    <td>
+                        <button onclick="toggleWhitelist(${item.id}, ${!item.status})" 
+                                class="${item.status ? 'disable-btn' : 'enable-btn'}">
+                            ${item.status ? '禁用' : '启用'}
+                        </button>
+                        <button onclick="deleteWhitelist(${item.id})" class="delete-btn">
+                            删除
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function addWhitelist() {
+            const domain = document.getElementById('domainInput').value.trim();
+            const description = document.getElementById('descriptionInput').value.trim();
+            
+            if (!domain) {
+                showMessage('请输入域名', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/admin/whitelist', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ domain, description })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('添加白名单失败');
+                }
+                
+                const result = await response.json();
+                if (result.code === 200) {
+                    showMessage('添加成功', 'success');
+                    document.getElementById('domainInput').value = '';
+                    document.getElementById('descriptionInput').value = '';
+                    loadWhitelist();
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error('添加白名单出错:', error);
+                showMessage(error.message, 'error');
+            }
+        }
+
+        async function toggleWhitelist(id, status) {
+            try {
+                const response = await fetch(`/api/admin/whitelist/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Key': adminKey
+                    },
+                    body: JSON.stringify({ status })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('更新状态失败');
+                }
+                
+                const result = await response.json();
+                if (result.code === 200) {
+                    showMessage('更新成功', 'success');
+                    loadWhitelist();
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error('更新白名单状态出错:', error);
+                showMessage(error.message, 'error');
+            }
+        }
+
+        async function deleteWhitelist(id) {
+            if (!confirm('确定要删除此域名吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/admin/whitelist/${id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Admin-Key': adminKey
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('删除失败');
+                }
+                
+                const result = await response.json();
+                if (result.code === 200) {
+                    showMessage('删除成功', 'success');
+                    loadWhitelist();
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error('删除白名单出错:', error);
+                showMessage(error.message, 'error');
+            }
+        }
+
+        function switchTab(tabName) {
+            // 更新按钮状态
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`.tab-btn[onclick*="${tabName}"]`).classList.add('active');
+            
+            // 更新内容显示
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`${tabName}Tab`).classList.add('active');
+            
+            // 加载对应的数据
+            if (tabName === 'whitelist') {
+                loadWhitelist();
+            } else if (tabName === 'files') {
+                queryFiles();
+            }
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化文件列表
+            queryFiles();
+        });
     </script>
 </body>
 </html> 

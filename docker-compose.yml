@@ -8,9 +8,8 @@ services:
       - "8000:8000"
     volumes:
       - ./voice:/app/voice
-      - ./logs:/app/logs
-    environment:
-      - PORT=8000
+      - ./api_key.txt:/app/api_key.txt
+      - ./audio_server.db:/app/audio_server.db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]

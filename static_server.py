@@ -279,7 +279,9 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(f"\n=== 处理POST请求 ===")
             print(f"请求路径: {self.path}")
             
-            if self.path == '/api/admin/verify':
+            if self.path == '/api/admin/whitelist':
+                self.handle_whitelist_add()
+            elif self.path == '/api/admin/verify':
                 self.handle_admin_verify()
             elif self.path.startswith('/api/admin/play/'):
                 self.handle_file_play()
@@ -512,7 +514,9 @@ class CustomHandler(BaseHTTPRequestHandler):
             path = parsed_url.path
             
             # 路由处理
-            if path == '/':
+            if path == '/api/admin/whitelist':
+                self.handle_whitelist_query()
+            elif path == '/':
                 self.serve_file('public/index.html', 'text/html')
             elif path == '/admin':
                 self.serve_file('public/admin.html', 'text/html')
@@ -1223,6 +1227,177 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(traceback.format_exc())
             self.send_error(500, str(e))
 
+    def handle_whitelist_query(self):
+        """处理白名单查询请求"""
+        try:
+            print("\n=== 处理白名单查询 ===")
+            
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute("""
+                    SELECT id, domain, description, status, create_time, update_time
+                    FROM whitelist
+                    ORDER BY create_time DESC
+                """)
+                
+                columns = [desc[0] for desc in cursor.description]
+                whitelist = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': 'success',
+                    'data': whitelist
+                })
+                
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"查询白名单时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
+
+    def handle_whitelist_add(self):
+        """处理添加白名单请求"""
+        try:
+            print("\n=== 处理添加白名单 ===")
+            
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            # 获取请求数据
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            domain = data.get('domain', '').strip()
+            description = data.get('description', '').strip()
+            
+            if not domain:
+                self.send_json_error(400, "Domain is required")
+                return
+                
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute("""
+                    INSERT INTO whitelist (domain, description)
+                    VALUES (?, ?)
+                """, (domain, description))
+                
+                conn.commit()
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': 'Whitelist added successfully'
+                })
+                
+            except sqlite3.IntegrityError:
+                self.send_json_error(400, "Domain already exists")
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"添加白名单时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
+
+    def handle_whitelist_update(self, whitelist_id):
+        """处理更新白名单状态请求"""
+        try:
+            print(f"\n=== 处理更新白名单 {whitelist_id} ===")
+            
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            # 获取请求数据
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            status = 1 if data.get('status') else 0
+            
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute("""
+                    UPDATE whitelist 
+                    SET status = ?,
+                        update_time = datetime('now')
+                    WHERE id = ?
+                """, (status, whitelist_id))
+                
+                if cursor.rowcount == 0:
+                    self.send_json_error(404, "Whitelist not found")
+                    return
+                    
+                conn.commit()
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': 'Whitelist updated successfully'
+                })
+                
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"更新白名单时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
+
+    def handle_whitelist_delete(self, whitelist_id):
+        """处理删除白名单请求"""
+        try:
+            print(f"\n=== 处理删除白名单 {whitelist_id} ===")
+            
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute("DELETE FROM whitelist WHERE id = ?", (whitelist_id,))
+                
+                if cursor.rowcount == 0:
+                    self.send_json_error(404, "Whitelist not found")
+                    return
+                    
+                conn.commit()
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': 'Whitelist deleted successfully'
+                })
+                
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"删除白名单时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
+
 class Logger:
     def __init__(self, log_dir='logs'):
         """初始化日志管理器"""
@@ -1311,8 +1486,28 @@ class DatabaseManager:
             )
             """)
             
+            # 创建白名单表
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS whitelist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                domain TEXT NOT NULL UNIQUE,
+                description TEXT,
+                status INTEGER DEFAULT 1,
+                create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                update_time DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            
+            # 插入默认域名
+            cursor.execute("""
+            INSERT OR IGNORE INTO whitelist (domain, description)
+            VALUES 
+                ('localhost', '本地开发环境'),
+                ('127.0.0.1', '本地IP地址')
+            """)
+            
             conn.commit()
-            print("数据库初始化完成")
+            conn.close()
             
         except Exception as e:
             print(f"初始化数据库时出错: {e}")
