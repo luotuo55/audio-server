@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1
 
 # 添加标签信息
 LABEL maintainer="dingguoping55"
-LABEL version="1.71"
+LABEL version="1.72"
 LABEL description="Audio Server - 音频文件管理系统"
 
 # 复制项目文件

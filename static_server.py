@@ -20,7 +20,7 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'public')
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'voice')
 
 # 版本信息
-VERSION = "1.71"
+VERSION = "1.72"
 VERSION_INFO = {
     'version': VERSION,
     'release_date': '2024-02-11',
@@ -76,7 +76,7 @@ class ConfigManager:
             print(f"密钥文件完整路径: {key_file_path}")
             
             if not os.path.exists(key_file_path):
-                print(f"密钥文件不存在: {key_file_path}")
+                print(f"���钥文件不存在: {key_file_path}")
                 return
                 
             with open(key_file_path, 'r', encoding='utf-8') as f:
@@ -124,7 +124,7 @@ class ConfigManager:
             print(f"- 正确的密钥: {self._admin_key}")
             
             result = provided_key == self._admin_key
-            print(f"验证结果: {'成功' if result else '失败'}")
+            print(f"证结果: {'成功' if result else '失败'}")
             return result
             
         except Exception as e:
@@ -253,7 +253,7 @@ def handle_errors(func):
 
 class CustomHandler(BaseHTTPRequestHandler):
     """HTTP请求处理器"""
-    VERSION = "1.71"
+    VERSION = "1.72"
     SERVER_NAME = f"Audio Server v{VERSION}"
     
     config_manager = ConfigManager()
@@ -475,7 +475,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         try:
             provided_key = self.headers.get('X-Admin-Key')
             if not provided_key:
-                print("未提供管���密钥")
+                print("未提供管密钥")
                 return False
                 
             return self.config_manager.verify_admin_key(provided_key)
@@ -593,7 +593,7 @@ class CustomHandler(BaseHTTPRequestHandler):
     def handle_admin_uploads(self):
         """处理管理员上传列表请求"""
         try:
-            print("\n=== 处理管理员上传列表请求 ===")
+            print("\n=== 处理理员上传列表请求 ===")
             if not self.verify_admin():
                 self.send_error(401, "Invalid admin key")
                 return
@@ -783,7 +783,7 @@ class CustomHandler(BaseHTTPRequestHandler):
             filename = os.path.basename(self.path)
             print(f"删除文件: {filename}")
             
-            # 查文件是否存在
+            # 查文件是否在
             file_path = os.path.join('voice', filename)
             if not os.path.exists(file_path):
                 print(f"物理文件不存在: {file_path}")
@@ -1132,6 +1132,185 @@ class CustomHandler(BaseHTTPRequestHandler):
                 
         except Exception as e:
             print(f"导出日志时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
+
+    def handle_admin_files_query(self):
+        """处理管理员文件查询请求"""
+        try:
+            print("\n=== 处理管理员文件查询 ===")
+            
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            # 解析查询参数
+            parsed_url = urlparse(self.path)
+            params = parse_qs(parsed_url.query)
+            
+            filename = params.get('filename', [''])[0]
+            status = params.get('status', [''])[0]
+            start_date = params.get('start_date', [''])[0]
+            end_date = params.get('end_date', [''])[0]
+            
+            # 构建查询条件
+            conditions = []
+            query_params = []
+            
+            if filename:
+                conditions.append("filename LIKE ?")
+                query_params.append(f"%{filename}%")
+                
+            if status:
+                conditions.append("status = ?")
+                query_params.append(status)
+                
+            if start_date:
+                conditions.append("upload_time >= ?")
+                query_params.append(f"{start_date} 00:00:00")
+                
+            if end_date:
+                conditions.append("upload_time <= ?")
+                query_params.append(f"{end_date} 23:59:59")
+                
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+            
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute(f"""
+                    SELECT 
+                        id,
+                        filename,
+                        original_filename,
+                        file_size,
+                        upload_time,
+                        status,
+                        is_deleted,
+                        delete_time,
+                        uploader_ip
+                    FROM audio_files
+                    WHERE {where_clause}
+                    ORDER BY upload_time DESC
+                """, query_params)
+                
+                columns = [desc[0] for desc in cursor.description]
+                files = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': 'success',
+                    'data': files
+                })
+                
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"查询文件时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
+
+    def handle_whitelist_add(self):
+        """处理添加白名单请求"""
+        try:
+            print("\n=== 处理添加白名单 ===")
+            
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            # 获取请求数据
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            domain = data.get('domain', '').strip()
+            description = data.get('description', '').strip()
+            
+            print(f"添加白名单: domain={domain}, description={description}")
+            
+            if not domain:
+                print("域名不能为空")
+                self.send_json_error(400, "Domain is required")
+                return
+                
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                # 检查域名是否已存在
+                cursor.execute("SELECT id FROM whitelist WHERE domain = ?", (domain,))
+                existing = cursor.fetchone()
+                
+                if existing:
+                    print(f"域名已存在: {domain}")
+                    self.send_json_error(400, "域名已存在")
+                    return
+                    
+                # 添加白名单记录
+                cursor.execute("""
+                    INSERT INTO whitelist (
+                        domain, 
+                        description,
+                        status,
+                        create_time,
+                        update_time
+                    ) VALUES (?, ?, 1, datetime('now'), datetime('now'))
+                """, (domain, description))
+                
+                whitelist_id = cursor.lastrowid
+                
+                # 记录操作日志
+                cursor.execute("""
+                    INSERT INTO operation_logs (
+                        operation_type,
+                        operator_ip,
+                        details,
+                        operation_time
+                    ) VALUES (?, ?, ?, datetime('now'))
+                """, (
+                    'whitelist_add',
+                    self.client_address[0],
+                    json.dumps({
+                        'domain': domain,
+                        'description': description,
+                        'whitelist_id': whitelist_id
+                    })
+                ))
+                
+                conn.commit()
+                print(f"白名单添加成功: {domain}")
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': '白名单添加成功',
+                    'data': {
+                        'id': whitelist_id,
+                        'domain': domain,
+                        'description': description,
+                        'status': 1,
+                        'create_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                })
+                
+            except sqlite3.IntegrityError as e:
+                print(f"数据库完整性错误: {e}")
+                self.send_json_error(400, "域名已存在")
+            except Exception as e:
+                print(f"添加白名单时出错: {e}")
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"添加白名单时出错: {e}")
             print(traceback.format_exc())
             self.send_json_error(500, str(e))
 
