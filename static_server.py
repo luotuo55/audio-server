@@ -12,13 +12,15 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs
 import sqlite3
 import logging
+import io
+import csv
 
 # 基础配置
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'public')
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'voice')
 
 # 版本信息
-VERSION = "1.7"
+VERSION = "1.71"
 VERSION_INFO = {
     'version': VERSION,
     'release_date': '2024-02-11',
@@ -251,7 +253,7 @@ def handle_errors(func):
 
 class CustomHandler(BaseHTTPRequestHandler):
     """HTTP请求处理器"""
-    VERSION = "1.7"
+    VERSION = "1.71"
     SERVER_NAME = f"Audio Server v{VERSION}"
     
     config_manager = ConfigManager()
@@ -411,7 +413,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')  # 允许跨域
-        self.send_header('Access-Control-Allow-Headers', 'X-Admin-Key')  # 允许自定义头
+        self.send_header('Access-Control-Allow-Headers', 'X-Admin-Key')  # 许自定义头
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
@@ -473,7 +475,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         try:
             provided_key = self.headers.get('X-Admin-Key')
             if not provided_key:
-                print("未提供管理密钥")
+                print("未提供管���密钥")
                 return False
                 
             return self.config_manager.verify_admin_key(provided_key)
@@ -513,10 +515,13 @@ class CustomHandler(BaseHTTPRequestHandler):
             parsed_url = urlparse(self.path)
             path = parsed_url.path
             
+            # 添加必要的导入
+            import io
+            import csv
+            from datetime import datetime
+            
             # 路由处理
-            if path == '/api/admin/whitelist':
-                self.handle_whitelist_query()
-            elif path == '/':
+            if path == '/':
                 self.serve_file('public/index.html', 'text/html')
             elif path == '/admin':
                 self.serve_file('public/admin.html', 'text/html')
@@ -524,6 +529,12 @@ class CustomHandler(BaseHTTPRequestHandler):
                 self.handle_admin_files_query()
             elif path.startswith('/api/admin/file/'):
                 self.handle_file_details()
+            elif path == '/api/admin/whitelist':
+                self.handle_whitelist_query()
+            elif path == '/api/admin/logs':
+                self.handle_logs_query()
+            elif path == '/api/admin/logs/export':
+                self.handle_logs_export()
             elif path.startswith('/voice/'):
                 filename = os.path.basename(path)
                 self.serve_audio_file(filename)
@@ -772,7 +783,7 @@ class CustomHandler(BaseHTTPRequestHandler):
             filename = os.path.basename(self.path)
             print(f"删除文件: {filename}")
             
-            # 检查文件是否存在
+            # 查文件是否存在
             file_path = os.path.join('voice', filename)
             if not os.path.exists(file_path):
                 print(f"物理文件不存在: {file_path}")
@@ -927,96 +938,99 @@ class CustomHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'X-Admin-Key')
         self.end_headers()
 
-    def handle_logs(self):
-        """处理日志请求"""
+    def handle_logs_query(self):
+        """处理日志查询请求"""
         try:
-            # 验证管理员密钥
-            admin_key = self.headers.get('X-Admin-Key')
-            if not self.config_manager.verify_admin_key(admin_key):
-                self.send_error(401, 'Invalid admin key')
-                return
-
-            # 解析查询参数
-            from urllib.parse import urlparse, parse_qs
-            parsed_url = urlparse(self.path)
-            query_params = parse_qs(parsed_url.query)
+            print("\n=== 处理日志查询 ===")
             
-            # 获过滤参数
-            start_date = query_params.get('start_date', [None])[0]
-            end_date = query_params.get('end_date', [None])[0]
-            action_type = query_params.get('action_type', [None])[0]
-
-            # 获取日志
-            logs = self.logger.get_logs(start_date, end_date, action_type)
-
-            # 发送响应
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
-            response = {
-                'code': 200,
-                'message': 'success',
-                'data': logs
-            }
-            
-            self.wfile.write(json.dumps(response, ensure_ascii=False).encode('utf-8'))
-            
-        except Exception as e:
-            print(f"处理日志请求失败: {e}")
-            print(traceback.format_exc())
-            self.send_error(500, str(e))
-
-    def log_action(self, action, details):
-        """记录操作日志"""
-        try:
-            # 添加IP地址和时间戳
-            details['ip'] = self.client_address[0]
-            details['user_agent'] = self.headers.get('User-Agent', 'unknown')
-            
-            self.logger.log(action, details)
-        except Exception as e:
-            print(f"记录日志失: {e}")
-            print(traceback.format_exc())
-
-    def handle_operation_query(self):
-        """处理操作记录查询请求"""
-        try:
+            # 验证管理员权限
             if not self.verify_admin():
-                self.send_error(401, "Invalid admin key")
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
                 return
                 
             # 解析查询参数
             parsed_url = urlparse(self.path)
             params = parse_qs(parsed_url.query)
             
-            filters = {
-                'filename': params.get('filename', [None])[0],
-                'operation_type': params.get('type', [None])[0],
-                'start_date': params.get('start', [None])[0],
-                'end_date': params.get('end', [None])[0]
-            }
+            page = int(params.get('page', ['1'])[0])
+            log_type = params.get('type', ['all'])[0]
+            start_date = params.get('start', [''])[0]
+            end_date = params.get('end', [''])[0]
             
-            # 获取操作记录
-            operations = self.db_manager.get_operations(filters)
+            # 构建查询条件
+            conditions = []
+            params = []
             
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({
-                'code': 200,
-                'data': operations
-            }).encode())
+            if log_type != 'all':
+                conditions.append("operation_type = ?")
+                params.append(log_type)
+                
+            if start_date:
+                conditions.append("operation_time >= ?")
+                params.append(f"{start_date} 00:00:00")
+                
+            if end_date:
+                conditions.append("operation_time <= ?")
+                params.append(f"{end_date} 23:59:59")
+                
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
             
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                # 获取总记录数
+                cursor.execute(f"""
+                    SELECT COUNT(*) 
+                    FROM operation_logs 
+                    WHERE {where_clause}
+                """, params)
+                total = cursor.fetchone()[0]
+                
+                # 获取分页数据
+                offset = (page - 1) * 20
+                cursor.execute(f"""
+                    SELECT 
+                        ol.operation_time,
+                        ol.operation_type,
+                        ol.operator_ip,
+                        af.filename,
+                        ol.details
+                    FROM operation_logs ol
+                    LEFT JOIN audio_files af ON ol.file_id = af.id
+                    WHERE {where_clause}
+                    ORDER BY ol.operation_time DESC
+                    LIMIT 20 OFFSET ?
+                """, params + [offset])
+                
+                columns = ['operation_time', 'operation_type', 'operator_ip', 'filename', 'details']
+                logs = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                
+                # 处理详情字段
+                for log in logs:
+                    if log['details']:
+                        log['details'] = json.loads(log['details'])
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': 'success',
+                    'data': logs,
+                    'total': total
+                })
+                
+            finally:
+                conn.close()
+                
         except Exception as e:
-            print(f"处理操作记录查询请求失: {e}")
-            self.send_error(500, str(e))
+            print(f"查询日志时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
 
-    def handle_admin_files_query(self):
-        """处理管理员文件查询请求"""
+    def handle_logs_export(self):
+        """处理日志导出请求"""
         try:
-            print("\n=== 处理文件查询请求 ===")
+            print("\n=== 处理日志导出 ===")
             
             # 验证管理员权限
             if not self.verify_admin():
@@ -1026,375 +1040,98 @@ class CustomHandler(BaseHTTPRequestHandler):
                 
             # 解析查询参数
             parsed_url = urlparse(self.path)
-            query_params = parse_qs(parsed_url.query)
+            params = parse_qs(parsed_url.query)
             
-            filename = query_params.get('filename', [''])[0]
-            status = query_params.get('status', [''])[0]
-            start_date = query_params.get('start_date', [''])[0]
-            end_date = query_params.get('end_date', [''])[0]
+            log_type = params.get('type', ['all'])[0]
+            start_date = params.get('start', [''])[0]
+            end_date = params.get('end', [''])[0]
             
-            print(f"查询参数:")
-            print(f"- 文件名: {filename}")
-            print(f"- 状态: {status}")
-            print(f"- 开始日期: {start_date}")
-            print(f"- 束日期: {end_date}")
+            print(f"导出参数: type={log_type}, start={start_date}, end={end_date}")
             
-            # 连接数据库
+            # 构建查询条件
+            conditions = []
+            query_params = []
+            
+            if log_type != 'all':
+                conditions.append("operation_type = ?")
+                query_params.append(log_type)
+                
+            if start_date:
+                conditions.append("operation_time >= ?")
+                query_params.append(f"{start_date} 00:00:00")
+                
+            if end_date:
+                conditions.append("operation_time <= ?")
+                query_params.append(f"{end_date} 23:59:59")
+                
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+            
             conn = sqlite3.connect('audio_server.db')
             cursor = conn.cursor()
             
             try:
-                # 构建查询SQL
-                query = """
-                SELECT 
-                    id,
-                    filename,
-                    original_filename,
-                    file_size,
-                    upload_time,
-                    status,
-                    is_deleted,
-                    delete_time,
-                    uploader_ip
-                FROM audio_files
-                WHERE 1=1
+                # 查询日志数据
+                query = f"""
+                    SELECT 
+                        ol.operation_time,
+                        ol.operation_type,
+                        ol.operator_ip,
+                        af.filename,
+                        ol.details
+                    FROM operation_logs ol
+                    LEFT JOIN audio_files af ON ol.file_id = af.id
+                    WHERE {where_clause}
+                    ORDER BY ol.operation_time DESC
                 """
-                params = []
+                print(f"执行查询: {query}")
+                print(f"查询参数: {query_params}")
                 
-                if filename:
-                    query += " AND filename LIKE ?"
-                    params.append(f"%{filename}%")
-                    
-                if status:
-                    query += " AND status = ?"
-                    params.append(status)
-                    
-                if start_date:
-                    query += " AND date(upload_time) >= date(?)"
-                    params.append(start_date)
-                    
-                if end_date:
-                    query += " AND date(upload_time) <= date(?)"
-                    params.append(end_date)
-                    
-                query += " ORDER BY upload_time DESC"
+                cursor.execute(query, query_params)
+                rows = cursor.fetchall()
                 
-                print(f"执行SQL查询:")
-                print(f"- SQL: {query}")
-                print(f"- 参数: {params}")
+                print(f"查询到 {len(rows)} 条记录")
                 
-                cursor.execute(query, params)
-                columns = [desc[0] for desc in cursor.description]
-                files = []
+                # 生成CSV内容
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(['操作时间', '操作类型', '操作者IP', '文件名', '详情'])
                 
-                for row in cursor.fetchall():
-                    file_data = dict(zip(columns, row))
-                    files.append(file_data)
-                    
-                print(f"查询到 {len(files)} 个文件")
-                
-                # 发送响应
-                self.send_json_response({
-                    'code': 200,
-                    'message': 'success',
-                    'data': files
-                })
-                
-            finally:
-                conn.close()
-                
-        except Exception as e:
-            print(f"查询文件时出错: {e}")
-            print(traceback.format_exc())
-            self.send_json_error(500, str(e))
-
-    def handle_file_details(self):
-        """处理文件详情请求"""
-        try:
-            print("\n=== 处理文件详情请求 ===")
-            
-            # 验证管理员权限
-            if not self.verify_admin():
-                print("管理员验证失败")
-                self.send_json_error(401, "Unauthorized")
-                return
-                
-            # 获取文件ID
-            file_id = self.path.split('/')[-1]
-            print(f"请求文件ID: {file_id}")
-            
-            # 连接数据库
-            conn = sqlite3.connect('audio_server.db')
-            cursor = conn.cursor()
-            
-            try:
-                # 获取文件基本信息
-                cursor.execute("""
-                    SELECT 
-                        id,
-                        filename,
-                        original_filename,
-                        file_size,
-                        upload_time,
-                        status,
-                        is_deleted,
-                        delete_time,
-                        uploader_ip
-                    FROM audio_files 
-                    WHERE id = ?
-                """, (file_id,))
-                
-                file_record = cursor.fetchone()
-                if not file_record:
-                    print("文件不存在")
-                    self.send_json_error(404, "File not found")
-                    return
-                    
-                # 转换为字典
-                columns = [desc[0] for desc in cursor.description]
-                file_info = dict(zip(columns, file_record))
-                
-                # 获取操作日志
-                cursor.execute("""
-                    SELECT 
-                        operation_type,
-                        operation_time,
-                        operator_ip,
-                        details
-                    FROM operation_logs 
-                    WHERE file_id = ?
-                    ORDER BY operation_time DESC
-                """, (file_id,))
-                
-                operations = []
-                for op in cursor.fetchall():
-                    operations.append({
-                        'type': op[0],
-                        'time': op[1],
-                        'ip': op[2],
-                        'details': json.loads(op[3]) if op[3] else {}
-                    })
-                
-                # 组装响应数据
-                response_data = {
-                    'code': 200,
-                    'message': 'success',
-                    'data': {
-                        'file_info': file_info,
-                        'operations': operations
-                    }
+                type_map = {
+                    'upload': '上传',
+                    'play': '播放',
+                    'delete': '删除',
+                    'whitelist_add': '添加白名单',
+                    'whitelist_update': '更新白名单',
+                    'whitelist_delete': '删除白名单'
                 }
                 
-                self.send_json_response(response_data)
-                print("文件详情发送成功")
+                for row in rows:
+                    writer.writerow([
+                        row[0],
+                        type_map.get(row[1], row[1]),
+                        row[2],
+                        row[3] or '-',
+                        row[4] or '-'
+                    ])
+                
+                # 发送响应
+                csv_data = output.getvalue().encode('utf-8-sig')
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/csv; charset=utf-8')
+                self.send_header('Content-Disposition', 
+                               f'attachment; filename=system_logs_{datetime.now().strftime("%Y%m%d")}.csv')
+                self.send_header('Content-Length', len(csv_data))
+                self.end_headers()
+                
+                self.wfile.write(csv_data)
+                print("CSV文件发送成功")
                 
             finally:
                 conn.close()
                 
         except Exception as e:
-            print(f"获取文件详情时出错: {e}")
-            print(traceback.format_exc())
-            self.send_json_error(500, str(e))
-
-    def serve_audio_file(self, filename):
-        """服务音频文件"""
-        try:
-            print(f"\n=== 服务音频文件 ===")
-            print(f"文件名: {filename}")
-            
-            file_path = os.path.join('voice', filename)
-            if not os.path.exists(file_path):
-                print(f"文件不存在: {file_path}")
-                self.send_error(404, "File not found")
-                return
-                
-            # 获取文件大小
-            file_size = os.path.getsize(file_path)
-            
-            self.send_response(200)
-            self.send_header('Content-Type', 'audio/mpeg')
-            self.send_header('Content-Length', str(file_size))
-            self.end_headers()
-            
-            # 读取并发送文件内容
-            with open(file_path, 'rb') as f:
-                self.wfile.write(f.read())
-                
-            print("音频文件发送成功")
-            
-        except Exception as e:
-            print(f"服务音频文件时出错: {e}")
-            print(traceback.format_exc())
-            self.send_error(500, str(e))
-
-    def handle_whitelist_query(self):
-        """处理白名单查询请求"""
-        try:
-            print("\n=== 处理白名单查询 ===")
-            
-            # 验证管理员权限
-            if not self.verify_admin():
-                print("管理员验证失败")
-                self.send_json_error(401, "Unauthorized")
-                return
-                
-            conn = sqlite3.connect('audio_server.db')
-            cursor = conn.cursor()
-            
-            try:
-                cursor.execute("""
-                    SELECT id, domain, description, status, create_time, update_time
-                    FROM whitelist
-                    ORDER BY create_time DESC
-                """)
-                
-                columns = [desc[0] for desc in cursor.description]
-                whitelist = [dict(zip(columns, row)) for row in cursor.fetchall()]
-                
-                self.send_json_response({
-                    'code': 200,
-                    'message': 'success',
-                    'data': whitelist
-                })
-                
-            finally:
-                conn.close()
-                
-        except Exception as e:
-            print(f"查询白名单时出错: {e}")
-            print(traceback.format_exc())
-            self.send_json_error(500, str(e))
-
-    def handle_whitelist_add(self):
-        """处理添加白名单请求"""
-        try:
-            print("\n=== 处理添加白名单 ===")
-            
-            # 验证管理员权限
-            if not self.verify_admin():
-                print("管理员验证失败")
-                self.send_json_error(401, "Unauthorized")
-                return
-                
-            # 获取请求数据
-            content_length = int(self.headers.get('Content-Length', 0))
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            domain = data.get('domain', '').strip()
-            description = data.get('description', '').strip()
-            
-            if not domain:
-                self.send_json_error(400, "Domain is required")
-                return
-                
-            conn = sqlite3.connect('audio_server.db')
-            cursor = conn.cursor()
-            
-            try:
-                cursor.execute("""
-                    INSERT INTO whitelist (domain, description)
-                    VALUES (?, ?)
-                """, (domain, description))
-                
-                conn.commit()
-                
-                self.send_json_response({
-                    'code': 200,
-                    'message': 'Whitelist added successfully'
-                })
-                
-            except sqlite3.IntegrityError:
-                self.send_json_error(400, "Domain already exists")
-            finally:
-                conn.close()
-                
-        except Exception as e:
-            print(f"添加白名单时出错: {e}")
-            print(traceback.format_exc())
-            self.send_json_error(500, str(e))
-
-    def handle_whitelist_update(self, whitelist_id):
-        """处理更新白名单状态请求"""
-        try:
-            print(f"\n=== 处理更新白名单 {whitelist_id} ===")
-            
-            # 验证管理员权限
-            if not self.verify_admin():
-                print("管理员验证失败")
-                self.send_json_error(401, "Unauthorized")
-                return
-                
-            # 获取请求数据
-            content_length = int(self.headers.get('Content-Length', 0))
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            status = 1 if data.get('status') else 0
-            
-            conn = sqlite3.connect('audio_server.db')
-            cursor = conn.cursor()
-            
-            try:
-                cursor.execute("""
-                    UPDATE whitelist 
-                    SET status = ?,
-                        update_time = datetime('now')
-                    WHERE id = ?
-                """, (status, whitelist_id))
-                
-                if cursor.rowcount == 0:
-                    self.send_json_error(404, "Whitelist not found")
-                    return
-                    
-                conn.commit()
-                
-                self.send_json_response({
-                    'code': 200,
-                    'message': 'Whitelist updated successfully'
-                })
-                
-            finally:
-                conn.close()
-                
-        except Exception as e:
-            print(f"更新白名单时出错: {e}")
-            print(traceback.format_exc())
-            self.send_json_error(500, str(e))
-
-    def handle_whitelist_delete(self, whitelist_id):
-        """处理删除白名单请求"""
-        try:
-            print(f"\n=== 处理删除白名单 {whitelist_id} ===")
-            
-            # 验证管理员权限
-            if not self.verify_admin():
-                print("管理员验证失败")
-                self.send_json_error(401, "Unauthorized")
-                return
-                
-            conn = sqlite3.connect('audio_server.db')
-            cursor = conn.cursor()
-            
-            try:
-                cursor.execute("DELETE FROM whitelist WHERE id = ?", (whitelist_id,))
-                
-                if cursor.rowcount == 0:
-                    self.send_json_error(404, "Whitelist not found")
-                    return
-                    
-                conn.commit()
-                
-                self.send_json_response({
-                    'code': 200,
-                    'message': 'Whitelist deleted successfully'
-                })
-                
-            finally:
-                conn.close()
-                
-        except Exception as e:
-            print(f"删除白名单时出错: {e}")
+            print(f"导出日志时出错: {e}")
             print(traceback.format_exc())
             self.send_json_error(500, str(e))
 

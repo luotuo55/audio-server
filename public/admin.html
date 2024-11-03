@@ -307,6 +307,70 @@
         .delete-btn:hover {
             background: #c82333;
         }
+        .filter-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .filter-section select,
+        .filter-section input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .logs-list {
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+        .logs-list table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .logs-list th,
+        .logs-list td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .logs-list th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        .logs-list tr:hover {
+            background-color: #f5f5f5;
+        }
+        .pagination {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+        .pagination button {
+            padding: 8px 16px;
+            border: none;
+            background: #007bff;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .pagination button:hover {
+            background: #0056b3;
+        }
+        .log-details {
+            min-width: 500px;
+            max-width: 800px;
+        }
+        .log-details pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
     </style>
 </head>
 <body>
@@ -322,13 +386,14 @@
 
         <div id="adminPanel">
             <div class="header">
-                <h1>音频文件管理系统 <span class="version">V1.7</span></h1>
+                <h1>音频文件管理系统 <span class="version">V1.71</span></h1>
                 <button onclick="logout()" class="logout-btn">登出</button>
             </div>
 
             <div class="nav-tabs">
                 <button class="tab-btn active" onclick="switchTab('files')">文件管理</button>
                 <button class="tab-btn" onclick="switchTab('whitelist')">白名单管理</button>
+                <button class="tab-btn" onclick="switchTab('logs')">系统日志</button>
             </div>
 
             <div class="content">
@@ -390,6 +455,48 @@
                             <tbody id="whitelistTable">
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                <div id="logsTab" class="tab-content">
+                    <h2>系统日志</h2>
+                    
+                    <div class="filter-section">
+                        <select id="logType" onchange="loadLogs()">
+                            <option value="all">所有类型</option>
+                            <option value="upload">上传</option>
+                            <option value="play">播放</option>
+                            <option value="delete">删除</option>
+                            <option value="whitelist">白名单</option>
+                        </select>
+                        
+                        <input type="date" id="startDate" onchange="loadLogs()">
+                        <input type="date" id="endDate" onchange="loadLogs()">
+                        
+                        <button onclick="loadLogs()">刷新</button>
+                        <button onclick="exportLogs()">导出日志</button>
+                    </div>
+                    
+                    <div class="logs-list">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>操作类型</th>
+                                    <th>操作者IP</th>
+                                    <th>文件名</th>
+                                    <th>详情</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logsTable">
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="pagination">
+                        <button onclick="changePage(-1)">&lt; 上一页</button>
+                        <span id="pageInfo">第 1 页</span>
+                        <button onclick="changePage(1)">下一页 &gt;</button>
                     </div>
                 </div>
             </div>
@@ -702,7 +809,7 @@
                 });
                 
                 if (!response.ok) {
-                    throw new Error('获取详情失败');
+                    throw new Error('获取详情失');
                 }
                 
                 const result = await response.json();
@@ -952,6 +1059,127 @@
             // 初始化文件列表
             queryFiles();
         });
+
+        let currentPage = 1;
+        const pageSize = 20;
+
+        async function loadLogs() {
+            try {
+                const type = document.getElementById('logType').value;
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                
+                const response = await fetch(`/api/admin/logs?page=${currentPage}&type=${type}&start=${startDate}&end=${endDate}`, {
+                    headers: {
+                        'X-Admin-Key': adminKey
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('获取日志失败');
+                }
+                
+                const result = await response.json();
+                if (result.code === 200) {
+                    displayLogs(result.data);
+                    updatePagination(result.total);
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                console.error('加载日志出错:', error);
+                showMessage(error.message, 'error');
+            }
+        }
+
+        function displayLogs(data) {
+            const table = document.getElementById('logsTable');
+            table.innerHTML = data.map(log => `
+                <tr>
+                    <td>${formatDate(log.operation_time)}</td>
+                    <td>${formatOperationType(log.operation_type)}</td>
+                    <td>${log.operator_ip}</td>
+                    <td>${log.filename || '-'}</td>
+                    <td>
+                        <button onclick='showLogDetails(${JSON.stringify(log)})'>
+                            查看
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function showLogDetails(log) {
+            let detailsHtml = `
+                <div class="log-details">
+                    <h3>操作详情</h3>
+                    <p><strong>操作时间：</strong>${formatDate(log.operation_time)}</p>
+                    <p><strong>操作类型：</strong>${formatOperationType(log.operation_type)}</p>
+                    <p><strong>操作者IP：</strong>${log.operator_ip}</p>
+                    <p><strong>文件名：</strong>${log.filename || '-'}</p>
+                    ${log.details ? `<p><strong>详细信息：</strong><pre>${JSON.stringify(log.details, null, 2)}</pre></p>` : ''}
+                </div>
+            `;
+            
+            showModal(detailsHtml);
+        }
+
+        function updatePagination(total) {
+            const totalPages = Math.ceil(total / pageSize);
+            document.getElementById('pageInfo').textContent = 
+                `第 ${currentPage} 页 / 共 ${totalPages} 页 (总计 ${total} 条)`;
+        }
+
+        function changePage(delta) {
+            currentPage = Math.max(1, currentPage + delta);
+            loadLogs();
+        }
+
+        async function exportLogs() {
+            try {
+                const type = document.getElementById('logType').value;
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                
+                const response = await fetch(`/api/admin/logs/export?type=${type}&start=${startDate}&end=${endDate}`, {
+                    headers: {
+                        'X-Admin-Key': adminKey
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('导出日志失败');
+                }
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `system_logs_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                showMessage('日志导出成功', 'success');
+            } catch (error) {
+                console.error('导出日志出错:', error);
+                showMessage(error.message, 'error');
+            }
+        }
+
+        // 格式化操作类型
+        function formatOperationType(type) {
+            const typeMap = {
+                'upload': '上传',
+                'play': '播放',
+                'delete': '删除',
+                'whitelist_add': '添加白名单',
+                'whitelist_update': '更新白名单',
+                'whitelist_delete': '删除白名单'
+            };
+            return typeMap[type] || type;
+        }
     </script>
 </body>
 </html> 
