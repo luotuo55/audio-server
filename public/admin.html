@@ -371,6 +371,131 @@
             border-radius: 4px;
             overflow-x: auto;
         }
+        /* 消息提示样式 */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .toast {
+            background: white;
+            border-radius: 4px;
+            padding: 16px 24px;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            display: flex;
+            align-items: center;
+            animation: slideIn 0.3s ease-out;
+            max-width: 350px;
+        }
+
+        .toast.success {
+            border-left: 4px solid #52c41a;
+        }
+
+        .toast.error {
+            border-left: 4px solid #ff4d4f;
+        }
+
+        .toast.warning {
+            border-left: 4px solid #faad14;
+        }
+
+        .toast-content {
+            margin-left: 12px;
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .toast-message {
+            color: #666;
+            font-size: 14px;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+
+        /* 表单样式改进 */
+        .form-section {
+            background: #fff;
+            padding: 24px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            margin-bottom: 24px;
+        }
+
+        .form-section input {
+            padding: 8px 12px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            transition: all 0.3s;
+            width: 240px;
+            margin-right: 12px;
+        }
+
+        .form-section input:focus {
+            border-color: #40a9ff;
+            box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+            outline: none;
+        }
+
+        .form-section input.error {
+            border-color: #ff4d4f;
+            animation: shake 0.5s;
+        }
+
+        .form-section input.error:focus {
+            box-shadow: 0 0 0 2px rgba(255, 77, 79, 0.2);
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        .form-section button {
+            padding: 8px 16px;
+            background: #1890ff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .form-section button:hover {
+            background: #40a9ff;
+        }
+
+        .form-section button:active {
+            background: #096dd9;
+        }
     </style>
 </head>
 <body>
@@ -502,6 +627,8 @@
             </div>
         </div>
     </div>
+
+    <div id="toastContainer" class="toast-container"></div>
 
     <script>
         let adminKey = localStorage.getItem('adminKey');
@@ -911,7 +1038,7 @@
                     throw new Error(result.message);
                 }
             } catch (error) {
-                console.error('加载白名单出错:', error);
+                console.error('���载白名单出错:', error);
                 showMessage(error.message, 'error');
             }
         }
@@ -938,11 +1065,22 @@
         }
 
         async function addWhitelist() {
-            const domain = document.getElementById('domainInput').value.trim();
-            const description = document.getElementById('descriptionInput').value.trim();
+            const domainInput = document.getElementById('domainInput');
+            const descriptionInput = document.getElementById('descriptionInput');
+            
+            const domain = domainInput.value.trim();
+            const description = descriptionInput.value.trim();
+            
+            // 移除之前的错误状态
+            domainInput.classList.remove('error');
             
             if (!domain) {
-                showMessage('请输入域名', 'error');
+                domainInput.classList.add('error');
+                showToast({
+                    type: 'error',
+                    title: '输入错误',
+                    message: '请输入域名'
+                });
                 return;
             }
             
@@ -956,22 +1094,36 @@
                     body: JSON.stringify({ domain, description })
                 });
                 
-                if (!response.ok) {
-                    throw new Error('添加白名单失败');
-                }
-                
                 const result = await response.json();
-                if (result.code === 200) {
-                    showMessage('添加成功', 'success');
-                    document.getElementById('domainInput').value = '';
-                    document.getElementById('descriptionInput').value = '';
+                
+                if (response.ok) {
+                    showToast({
+                        type: 'success',
+                        title: '操作成功',
+                        message: '域名添加成功'
+                    });
+                    
+                    // 清空输入
+                    domainInput.value = '';
+                    descriptionInput.value = '';
+                    
+                    // 刷新列表
                     loadWhitelist();
                 } else {
-                    throw new Error(result.message);
+                    domainInput.classList.add('error');
+                    showToast({
+                        type: 'error',
+                        title: '添加失败',
+                        message: result.message || '未知错误'
+                    });
                 }
             } catch (error) {
                 console.error('添加白名单出错:', error);
-                showMessage(error.message, 'error');
+                showToast({
+                    type: 'error',
+                    title: '系统错误',
+                    message: '添加白名单失败，请稍后重试'
+                });
             }
         }
 
@@ -1180,6 +1332,40 @@
             };
             return typeMap[type] || type;
         }
+
+        // 消息提示函数
+        function showToast(options) {
+            const { type = 'info', title, message, duration = 3000 } = options;
+            const container = document.getElementById('toastContainer');
+            
+            // 创建toast元素
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            // 设置内容
+            toast.innerHTML = `
+                <div class="toast-content">
+                    ${title ? `<div class="toast-title">${title}</div>` : ''}
+                    <div class="toast-message">${message}</div>
+                </div>
+            `;
+            
+            // 添加到容器
+            container.appendChild(toast);
+            
+            // 自动移除
+            setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease-in forwards';
+                setTimeout(() => {
+                    container.removeChild(toast);
+                }, 300);
+            }, duration);
+        }
+
+        // 输入框事件监听
+        document.getElementById('domainInput').addEventListener('input', function() {
+            this.classList.remove('error');
+        });
     </script>
 </body>
 </html> 

@@ -76,7 +76,7 @@ class ConfigManager:
             print(f"密钥文件完整路径: {key_file_path}")
             
             if not os.path.exists(key_file_path):
-                print(f"���钥文件不存在: {key_file_path}")
+                print(f"钥文件不存在: {key_file_path}")
                 return
                 
             with open(key_file_path, 'r', encoding='utf-8') as f:
@@ -591,7 +591,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         return content_types.get(ext, 'application/octet-stream')
 
     def handle_admin_uploads(self):
-        """处理管理员上传列表请求"""
+        """处理管理员上传表请求"""
         try:
             print("\n=== 处理理员上传列表请求 ===")
             if not self.verify_admin():
@@ -758,9 +758,27 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(f"\n=== 处理DELETE请求 ===")
             print(f"请求路径: {self.path}")
             
-            if self.path.startswith('/api/admin/delete/'):
-                self.handle_file_delete()
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            # 解析URL
+            parsed_url = urlparse(self.path)
+            path = parsed_url.path
+            
+            # 处理白名单删除
+            if path.startswith('/api/admin/whitelist/'):
+                whitelist_id = path.split('/')[-1]
+                try:
+                    whitelist_id = int(whitelist_id)
+                    self.handle_whitelist_delete(whitelist_id)
+                except ValueError:
+                    print(f"无效的白名单ID: {whitelist_id}")
+                    self.send_json_error(400, "Invalid whitelist ID")
             else:
+                print(f"未知的DELETE请求路径: {path}")
                 self.send_error(404, "Not Found")
                 
         except Exception as e:
@@ -768,106 +786,69 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(traceback.format_exc())
             self.send_error(500, str(e))
 
-    def handle_file_delete(self):
-        """处理文件删除请求"""
+    def handle_whitelist_delete(self, whitelist_id):
+        """处理删除白名单请求"""
         try:
-            print("\n=== 处理文件删除 ===")
+            print(f"\n=== 处理删除白名单 {whitelist_id} ===")
             
-            # 验证管理员权限
-            if not self.verify_admin():
-                print("管理员验证失败")
-                self.send_json_error(401, "Unauthorized")
-                return
-                
-            # 获取文件名
-            filename = os.path.basename(self.path)
-            print(f"删除文件: {filename}")
-            
-            # 查文件是否在
-            file_path = os.path.join('voice', filename)
-            if not os.path.exists(file_path):
-                print(f"物理文件不存在: {file_path}")
-                self.send_json_error(404, "File not found")
-                return
-                
-            # 连接数据库
             conn = sqlite3.connect('audio_server.db')
             cursor = conn.cursor()
             
             try:
-                # 获取文件ID
-                cursor.execute("SELECT id FROM audio_files WHERE filename = ? AND status = 'active'", (filename,))
-                file_record = cursor.fetchone()
+                # 检查记录是否存在
+                cursor.execute("SELECT domain FROM whitelist WHERE id = ?", (whitelist_id,))
+                existing = cursor.fetchone()
                 
-                if not file_record:
-                    print("数据库记录不存在或已删除")
-                    self.send_json_error(404, "File not found or already deleted")
+                if not existing:
+                    print(f"白名单记录不存在: {whitelist_id}")
+                    self.send_json_error(404, "记录不存在")
                     return
                     
-                file_id = file_record[0]
-                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                domain = existing[0]
+                print(f"准备删除域名: {domain}")
                 
-                # 1. 删除物理文件
-                try:
-                    os.remove(file_path)
-                    print(f"物理文件删除成功: {file_path}")
-                    physical_delete_success = True
-                except Exception as e:
-                    print(f"物理文件删除失败: {e}")
-                    physical_delete_success = False
+                # 删除记录
+                cursor.execute("DELETE FROM whitelist WHERE id = ?", (whitelist_id,))
                 
-                # 2. 更新数据库状态
-                cursor.execute("""
-                    UPDATE audio_files 
-                    SET status = 'deleted', 
-                        is_deleted = 1,
-                        delete_time = ?
-                    WHERE id = ?
-                """, (current_time, file_id))
-                
-                # 3. 记录操作日志
-                details = {
-                    'filename': filename,
-                    'physical_delete': physical_delete_success
-                }
-                
+                # 记录操作日志
                 cursor.execute("""
                     INSERT INTO operation_logs (
-                        file_id,
                         operation_type,
-                        operation_time,
                         operator_ip,
-                        details
-                    ) VALUES (?, ?, ?, ?, ?)
+                        details,
+                        operation_time
+                    ) VALUES (?, ?, ?, datetime('now'))
                 """, (
-                    file_id,
-                    'delete',
-                    current_time,
+                    'whitelist_delete',
                     self.client_address[0],
-                    json.dumps(details)
+                    json.dumps({
+                        'whitelist_id': whitelist_id,
+                        'domain': domain
+                    }),
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 ))
                 
                 conn.commit()
-                print("数据库更新成功")
+                print(f"白名单删除成功: {domain}")
                 
-                # 4. 返回响应
-                response_message = 'File deleted successfully'
-                if not physical_delete_success:
-                    response_message += ' (database only)'
-                    
                 self.send_json_response({
                     'code': 200,
-                    'message': response_message,
+                    'message': '删除成功',
                     'data': {
-                        'physical_delete': physical_delete_success
+                        'id': whitelist_id,
+                        'domain': domain
                     }
                 })
                 
+            except sqlite3.Error as e:
+                print(f"数据库操作错误: {e}")
+                conn.rollback()
+                self.send_json_error(500, f"数据库错误: {str(e)}")
             finally:
                 conn.close()
                 
         except Exception as e:
-            print(f"删除文件时出错: {e}")
+            print(f"删除白名单时出错: {e}")
             print(traceback.format_exc())
             self.send_json_error(500, str(e))
 
@@ -1314,6 +1295,197 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(traceback.format_exc())
             self.send_json_error(500, str(e))
 
+    def handle_whitelist_query(self):
+        """处理白名单查询请求"""
+        try:
+            print("\n=== 处理白名单查询 ===")
+            
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                # 查询所有白名单记录
+                cursor.execute("""
+                    SELECT 
+                        id,
+                        domain,
+                        description,
+                        status,
+                        create_time,
+                        update_time
+                    FROM whitelist
+                    ORDER BY create_time DESC
+                """)
+                
+                columns = [desc[0] for desc in cursor.description]
+                whitelist = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                
+                print(f"查询到 {len(whitelist)} 条白名单记录")
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': 'success',
+                    'data': whitelist
+                })
+                
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"查询白名单时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
+
+    def handle_whitelist_update(self, whitelist_id):
+        """处理更新白名单请求"""
+        try:
+            print(f"\n=== 处理更新白名单 {whitelist_id} ===")
+            
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            # 获取请求数据
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            status = 1 if data.get('status') else 0
+            description = data.get('description', '').strip()
+            
+            print(f"更新白名单: id={whitelist_id}, status={status}, description={description}")
+            
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                # 检查记录是否存在
+                cursor.execute("SELECT domain FROM whitelist WHERE id = ?", (whitelist_id,))
+                existing = cursor.fetchone()
+                
+                if not existing:
+                    print(f"白名单记录不存在: {whitelist_id}")
+                    self.send_json_error(404, "记录不存在")
+                    return
+                    
+                # 更新记录
+                cursor.execute("""
+                    UPDATE whitelist 
+                    SET status = ?,
+                        description = ?,
+                        update_time = datetime('now')
+                    WHERE id = ?
+                """, (status, description, whitelist_id))
+                
+                # 记录操作日志
+                cursor.execute("""
+                    INSERT INTO operation_logs (
+                        operation_type,
+                        operator_ip,
+                        details,
+                        operation_time
+                    ) VALUES (?, ?, ?, datetime('now'))
+                """, (
+                    'whitelist_update',
+                    self.client_address[0],
+                    json.dumps({
+                        'whitelist_id': whitelist_id,
+                        'domain': existing[0],
+                        'status': status,
+                        'description': description
+                    })
+                ))
+                
+                conn.commit()
+                print(f"白名单更新成功: {whitelist_id}")
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': '更新成功',
+                    'data': {
+                        'id': whitelist_id,
+                        'status': status,
+                        'description': description,
+                        'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                })
+                
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"更新白名单时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
+
+    def handle_whitelist_delete(self, whitelist_id):
+        """处理删除白名单请求"""
+        try:
+            print(f"\n=== 处理删除白名单 {whitelist_id} ===")
+            
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            try:
+                # 检查记录是否存在
+                cursor.execute("SELECT domain FROM whitelist WHERE id = ?", (whitelist_id,))
+                existing = cursor.fetchone()
+                
+                if not existing:
+                    print(f"白名单记录不存在: {whitelist_id}")
+                    self.send_json_error(404, "记录不存在")
+                    return
+                    
+                # 删除记录
+                cursor.execute("DELETE FROM whitelist WHERE id = ?", (whitelist_id,))
+                
+                # 记录操作日志
+                cursor.execute("""
+                    INSERT INTO operation_logs (
+                        operation_type,
+                        operator_ip,
+                        details,
+                        operation_time
+                    ) VALUES (?, ?, ?, datetime('now'))
+                """, (
+                    'whitelist_delete',
+                    self.client_address[0],
+                    json.dumps({
+                        'whitelist_id': whitelist_id,
+                        'domain': existing[0]
+                    })
+                ))
+                
+                conn.commit()
+                print(f"白名单删除成功: {whitelist_id}")
+                
+                self.send_json_response({
+                    'code': 200,
+                    'message': '删除成功'
+                })
+                
+            finally:
+                conn.close()
+                
+        except Exception as e:
+            print(f"删除白名单时出错: {e}")
+            print(traceback.format_exc())
+            self.send_json_error(500, str(e))
+
 class Logger:
     def __init__(self, log_dir='logs'):
         """初始化日志管理器"""
@@ -1524,7 +1696,7 @@ class DatabaseManager:
             conn.close()
     
     def get_file_list(self, include_deleted=False):
-        """获取文件列表"""
+        """获取文件列��"""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         
