@@ -1111,25 +1111,40 @@ class CustomHandler(BaseHTTPRequestHandler):
         """处理文件删除请求"""
         try:
             print(f"\n=== 处理文件删除请求: {filename} ===")
+            
+            # 验证管理员权限
             if not self.verify_admin():
                 self.send_error(401, "未授权访问")
                 return
             
-            file_path = os.path.join(UPLOAD_DIR, filename)
+            # 构建文件路径
+            file_path = os.path.join('voice', filename)
+            print(f"尝试删除文件: {file_path}")
+            
             if not os.path.exists(file_path):
+                print(f"文件不存在: {file_path}")
                 self.send_json_error(404, "文件不存在")
                 return
             
-            # 删除文件
-            os.remove(file_path)
-            
-            self.send_json_response({
-                'code': 200,
-                'message': '文件删除成功'
-            })
+            try:
+                # 删除文件
+                os.remove(file_path)
+                print(f"文件删除成功: {filename}")
+                
+                # 记录操作日志
+                self.log_operation('delete', filename)
+                
+                # 返回成功响应
+                self.send_json_response({
+                    'code': 200,
+                    'message': '文件删除成功'
+                })
+            except Exception as e:
+                print(f"删除文件失败: {e}")
+                self.send_json_error(500, f"删除文件失败: {str(e)}")
             
         except Exception as e:
-            print(f"删除文件失败: {e}")
+            print(f"处理删除请求失败: {e}")
             print(traceback.format_exc())
             self.send_error(500, str(e))
 
@@ -1504,6 +1519,48 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(f"服务favicon时出错: {e}")
             self.send_error(500, str(e))
 
+    def do_DELETE(self):
+        """处理DELETE请求"""
+        try:
+            print(f"\n=== 处理DELETE请求: {self.path} ===")
+            
+            # 规范化路径
+            path = self.path.rstrip('/')
+            if path.startswith('/audio'):
+                path = path[6:]
+            
+            # 路由匹配
+            if path.startswith('/api/admin/delete/'):
+                filename = path.split('/')[-1]
+                self.handle_file_delete(filename)
+            else:
+                print(f"未找到匹配的路由: {path}")
+                self.send_error(404, "Not Found")
+            
+        except Exception as e:
+            print(f"处理DELETE请求失败: {e}")
+            print(traceback.format_exc())
+            self.send_error(500, str(e))
+
+    def log_operation(self, operation, filename):
+        """记录操作日志"""
+        try:
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            log_entry = f"{current_time} - {operation}: {filename}\n"
+            
+            log_dir = 'logs'
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+            
+            log_file = os.path.join(log_dir, f'operations_{datetime.now().strftime("%Y%m%d")}.log')
+            
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(log_entry)
+            
+            print(f"操作已记录到日志: {log_entry.strip()}")
+        except Exception as e:
+            print(f"记录操作日志失败: {e}")
+
 class Logger:
     def __init__(self, log_dir='logs'):
         """初始化日志管理器"""
@@ -1738,7 +1795,7 @@ class DatabaseManager:
 def run_server(port=8000):
     """运行服务器"""
     try:
-        # 预先��始化配置管理器
+        # 预先始化配置管理器
         config_manager = ConfigManager()
         print(f"服务器启动时的管理员密钥: {config_manager.admin_key}")
         
