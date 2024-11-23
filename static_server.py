@@ -20,17 +20,38 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'public')
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'voice')
 
 # 版本信息
-VERSION = "1.72"
+VERSION = "1.98"
 VERSION_INFO = {
     'version': VERSION,
-    'release_date': '2024-02-11',
+    'release_date': '2024-03-19',
     'features': [
         '支持音频文件上传和播放',
         '域名白名单管理',
         '文件自动清理',
         '操作日志记录',
         '管理后台功能',
-        '修复日志记录问题'
+        '优化白名单匹配规则',
+        '支持子域名和子路径',
+        '优化程序退出处理',
+        '修复音频上传404问题',
+        '修复重定向循环问题',
+        '优化路由处理逻辑',
+        '优化网页访问体验',
+        '修复路由匹配问题',
+        '添加详细日志输出',
+        '优化文件上传处理',
+        '优化响应头处理',
+        '简化上传路径',
+        '优化Nginx配置',
+        '优化路由处理机制',
+        '修复文件保存功能',
+        '修复数据库结构',
+        '优化管理员验证',
+        '修复音频文件访问',
+        '修复管理员验证配置',
+        '优化音频文件路由',
+        '优化主页路由匹配',
+        '优化页面布局和样式'
     ]
 }
 
@@ -241,7 +262,7 @@ def formatSize(size):
     return f"{size:.2f} TB"
 
 def handle_errors(func):
-    """错误处理装饰器"""
+    """错"""
     def wrapper(self, *args, **kwargs):
         try:
             return func(self, *args, **kwargs)
@@ -253,8 +274,9 @@ def handle_errors(func):
 
 class CustomHandler(BaseHTTPRequestHandler):
     """HTTP请求处理器"""
-    VERSION = "1.72"
+    VERSION = "1.98"
     SERVER_NAME = f"Audio Server v{VERSION}"
+    ADMIN_KEY = "dgp432126"  # 直接定义为类变量
     
     config_manager = ConfigManager()
     logger = None
@@ -280,20 +302,40 @@ class CustomHandler(BaseHTTPRequestHandler):
         try:
             print(f"\n=== 处理POST请求 ===")
             print(f"请求路径: {self.path}")
+            print(f"请求头: {self.headers}")
+            print(f"请求方法: {self.command}")
             
-            if self.path == '/api/admin/whitelist':
-                self.handle_whitelist_add()
-            elif self.path == '/api/admin/verify':
-                self.handle_admin_verify()
-            elif self.path.startswith('/api/admin/play/'):
-                self.handle_file_play()
-            elif self.path == '/api/upload':
+            # 规范化路径
+            path = self.path.rstrip('/')
+            if path.startswith('/audio'):
+                path = path[6:]  # 移除 /audio 前缀
+            
+            print(f"处理后的路径: {path}")
+            
+            # 处理路径
+            if path in ['/api/upload', '/upload']:
+                print(f"匹配到文件上传API路由")
                 self.handle_file_upload()
+            elif path in ['/api/admin/verify']:
+                print(f"匹配到管理员验证API路由")
+                self.handle_admin_verify()
+            elif path.startswith('/api/admin/play/'):
+                print(f"匹配到音频播放API路由")
+                self.handle_file_play()
             else:
+                print(f"未找到匹配的路由: {path}")
+                print(f"原始路径: {self.path}")
+                print(f"当前支持的POST路由:")
+                print("- /api/upload")
+                print("- /upload")
+                print("- /api/admin/verify")
+                print("- /api/admin/play/*")
                 self.send_error(404, "Not Found")
                 
         except Exception as e:
             print(f"处理POST请求时出错: {e}")
+            print(f"错误类型: {type(e)}")
+            print(f"错误堆栈:")
             print(traceback.format_exc())
             self.send_error(500, str(e))
 
@@ -301,110 +343,72 @@ class CustomHandler(BaseHTTPRequestHandler):
         """处理文件上传"""
         try:
             print("\n=== 处理文件上传 ===")
+            print(f"完整请求路径: {self.path}")
+            print(f"请求方法: {self.command}")
+            print(f"请求头信息:")
+            for header, value in self.headers.items():
+                print(f"  {header}: {value}")
             
-            # 验证请来源
-            if not self.verify_origin():
-                print("来源验证失败")
-                self.send_json_error(403, "Origin not allowed")
-                return
-                
-            # 验证Content-Type
+            # 验证 Content-Type
             content_type = self.headers.get('Content-Type', '')
+            print(f"Content-Type: {content_type}")
             if not content_type.startswith('multipart/form-data'):
-                print(f"Content-Type 不正确: {content_type}")
+                print("错误: Content-Type 不是 multipart/form-data")
                 self.send_json_error(400, "Invalid Content-Type")
                 return
-                
-            # 解析文件数据
-            try:
-                form = cgi.FieldStorage(
-                    fp=self.rfile,
-                    headers=self.headers,
-                    environ={
-                        'REQUEST_METHOD': 'POST',
-                        'CONTENT_TYPE': self.headers['Content-Type'],
-                    }
-                )
-            except Exception as e:
-                print(f"解析表单数据失败: {e}")
-                self.send_json_error(400, "Failed to parse form data")
-                return
             
-            # 检查是否有文件
+            # 获取请求体大小
+            content_length = int(self.headers.get('Content-Length', 0))
+            print(f"上传文件大小: {content_length} 字节")
+            
+            # 解析表单数据
+            print("开始解析表单数据...")
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={
+                    'REQUEST_METHOD': 'POST',
+                    'CONTENT_TYPE': content_type,
+                    'CONTENT_LENGTH': str(content_length)
+                }
+            )
+            
+            print(f"表单字段列表: {list(form.keys())}")
+            
+            # 检查文件字段
             if 'file' not in form:
-                print("未找到文件")
-                self.send_json_error(400, "No file uploaded")
+                print("错误: 表单中没有找到文件字段")
+                self.send_json_error(400, "No file field in form")
                 return
-                
-            # 获取文件信息
+            
             file_item = form['file']
-            if not file_item.filename:
-                print("文件名为空")
-                self.send_json_error(400, "No file selected")
-                return
-                
-            # 获取原始文件名
-            original_filename = os.path.basename(file_item.filename)
-            print(f"原始文件名: {original_filename}")
-            
-            # 生成安全的文件名
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            safe_filename = f"{timestamp}_{original_filename}"
-            filepath = os.path.join('voice', safe_filename)
-            
-            # 确保目录存在
-            os.makedirs('voice', exist_ok=True)
+            print(f"文件信息:")
+            print(f"  - 原始文件名: {file_item.filename}")
+            print(f"  - 文件类型: {file_item.type}")
+            print(f"  - 文件大小: {len(file_item.value)} 字节")
             
             # 保存文件
             try:
-                with open(filepath, 'wb') as f:
-                    f.write(file_item.file.read())
-            except Exception as e:
-                print(f"保存文件失败: {e}")
-                self.send_json_error(500, "Failed to save file")
-                return
+                filename = self.save_uploaded_file(file_item)
+                print(f"文件保存成功: {filename}")
                 
-            file_size = os.path.getsize(filepath)
-            print(f"文件已保存: {filepath} ({file_size} bytes)")
-            
-            # 添加到数据库
-            try:
-                file_data = {
-                    'filename': safe_filename,
-                    'original_filename': original_filename,
-                    'file_size': file_size,
-                    'file_path': filepath,
-                    'uploader_ip': self.client_address[0],
-                    'mime_type': file_item.type,
-                    'extra_info': {
-                        'user_agent': self.headers.get('User-Agent'),
-                        'content_length': self.headers.get('Content-Length'),
-                        'request_time': time.time()
-                    }
+                # 返回成功响应
+                response_data = {
+                    'status': 'success',
+                    'message': 'File uploaded successfully',
+                    'filename': filename
                 }
+                print(f"返回响应: {response_data}")
+                self.send_json_response(response_data)
                 
-                self.db_manager.add_audio_file(file_data)
-                print("文件信息已保存到数据库")
             except Exception as e:
-                print(f"保存到数据库失: {e}")
-                # 除已上传的文件
-                os.remove(filepath)
-                self.send_json_error(500, "Failed to save file information")
-                return
-            
-            # 发送成功响应
-            self.send_json_response({
-                'code': 200,
-                'message': '上传成功',
-                'data': {
-                    'filename': safe_filename,
-                    'file_url': f'/voice/{safe_filename}'
-                }
-            })
-            print("上传处理完成")
-            
+                print(f"保存文件时出错: {e}")
+                print(traceback.format_exc())
+                self.send_json_error(500, f"Failed to save file: {str(e)}")
+                
         except Exception as e:
-            print(f"上传处理出错: {e}")
+            print(f"处理上传请求时出错: {e}")
+            print(f"错误类型: {type(e)}")
             print(traceback.format_exc())
             self.send_json_error(500, str(e))
 
@@ -412,8 +416,6 @@ class CustomHandler(BaseHTTPRequestHandler):
         """发送JSON响应"""
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')  # 允许跨域
-        self.send_header('Access-Control-Allow-Headers', 'X-Admin-Key')  # 许自定义头
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
@@ -421,54 +423,44 @@ class CustomHandler(BaseHTTPRequestHandler):
         """发送JSON错误响应"""
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers', 'X-Admin-Key')
         self.end_headers()
-        error_data = {
+        self.wfile.write(json.dumps({
+            'status': 'error',
             'code': code,
             'message': message
-        }
-        self.wfile.write(json.dumps(error_data).encode())
+        }).encode())
 
     def handle_admin_verify(self):
-        """处理管理员验证请求"""
+        """处理管理员验证"""
         try:
-            print("\n=== 验证管理钥 ===")
-            provided_key = self.headers.get('X-Admin-Key')
+            print("\n=== 处理管理员验证 ===")
+            print(f"请求路径: {self.path}")
             
-            print(f"收到验证请求:")
-            print(f"- Header中的密钥: {provided_key}")
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
             
-            # 如果header中没有密钥，尝试请求体获取
-            if not provided_key and int(self.headers.get('Content-Length', 0)) > 0:
-                content_length = int(self.headers.get('Content-Length'))
-                post_data = self.rfile.read(content_length)
-                try:
-                    body = json.loads(post_data.decode('utf-8'))
-                    provided_key = body.get('key')
-                    print(f"- 请求体中的密钥: {provided_key}")
-                except:
-                    print("解析请求体失败")
+            print(f"接收到的数据: {data}")
             
-            if not provided_key:
-                print("未提供密钥")
-                self.send_json_error(401, "No admin key provided")
-                return
-                
-            if self.config_manager.verify_admin_key(provided_key):
+            input_key = data.get('key', '')
+            
+            print(f"输入的密钥: {input_key}")
+            print(f"正确的密钥: {self.ADMIN_KEY}")
+            
+            if input_key == self.ADMIN_KEY:
                 print("验证成功")
                 self.send_json_response({
-                    'code': 200,
-                    'message': 'Verification successful'
+                    'status': 'success',
+                    'message': 'Admin verified successfully'
                 })
             else:
                 print("验证失败")
                 self.send_json_error(401, "Invalid admin key")
                 
         except Exception as e:
-            print(f"验证管理员密钥时出错: {e}")
+            print(f"处理管理员验证时出错: {e}")
             print(traceback.format_exc())
-            self.send_error(500, str(e))
+            self.send_json_error(500, str(e))
 
     def verify_admin(self):
         """验证管理员权限"""
@@ -494,15 +486,15 @@ class CustomHandler(BaseHTTPRequestHandler):
             referer = self.headers.get('Referer')
             request_source = origin or referer
             
-            print(f"请求来源: {request_source}")
+            print(f"请来源: {request_source}")
             
             if not request_source:
                 print("无法获取请求来源")
                 return False
                 
-            # 解析域名，去除端口号
+            # 解析域名，只取主域名部分
             parsed_url = urlparse(request_source)
-            request_domain = parsed_url.netloc.split(':')[0]  # 只取域名部分，去除端口
+            request_domain = parsed_url.netloc.split(':')[0]  # 去除端号
             print(f"解析的域名: {request_domain}")
             
             # 从数据库获取白名单
@@ -519,8 +511,12 @@ class CustomHandler(BaseHTTPRequestHandler):
                 allowed_domains = [row[0] for row in cursor.fetchall()]
                 print(f"允许的域名: {allowed_domains}")
                 
-                # 验证结果
-                is_allowed = request_domain in allowed_domains
+                # 验证结果：只比较主域名部分
+                is_allowed = any(
+                    request_domain == domain or 
+                    request_domain.endswith('.' + domain)
+                    for domain in allowed_domains
+                )
                 print(f"验证结果: {'允许' if is_allowed else '禁止'}")
                 
                 return is_allowed
@@ -529,56 +525,64 @@ class CustomHandler(BaseHTTPRequestHandler):
                 conn.close()
                 
         except Exception as e:
-            print(f"验证请求来源时出错: {e}")
+            print(f"验请求来源时出错: {e}")
             print(traceback.format_exc())
             return False
 
+    @handle_errors
     def do_GET(self):
         """处理GET请求"""
         try:
             print(f"\n=== 处理GET请求 ===")
             print(f"请求路径: {self.path}")
+            print(f"请求头: {self.headers}")
+            print(f"请求方法: {self.command}")
             
-            # 解析URL
-            parsed_url = urlparse(self.path)
-            path = parsed_url.path
+            # 规范化路径
+            path = self.path.rstrip('/')
             
-            # 路由处理
-            if path.startswith('/voice/'):
-                filename = os.path.basename(path)
-                try:
-                    self.serve_audio_file(filename)
-                except Exception as e:
-                    print(f"处理音频文件时出错: {e}")
-                    try:
-                        error_message = str(e).encode('utf-8', errors='ignore').decode('utf-8')
-                        self.send_error(500, error_message)
-                    except:
-                        self.send_error(500, "Internal Server Error")
-            elif path == '/':
+            # 处理主页请求
+            if path == '' or path == '/' or path == '/audio' or path == '/audio/':
+                print("匹配到主页路由")
                 self.serve_file('public/index.html', 'text/html')
-            elif path == '/admin':
+                return
+            
+            # 处理管理页面请求
+            if path == '/admin' or path == '/audio/admin':
+                print("匹配到管理页面路由")
                 self.serve_file('public/admin.html', 'text/html')
-            elif path == '/api/admin/files':
-                self.handle_admin_files_query()
-            elif path.startswith('/api/admin/file/'):
-                self.handle_file_details()
-            elif path == '/api/admin/whitelist':
-                self.handle_whitelist_query()
-            elif path == '/api/admin/logs':
-                self.handle_logs_query()
-            elif path == '/api/admin/logs/export':
-                self.handle_logs_export()
-            else:
-                self.send_error(404, "File not found")
-                
+                return
+            
+            # 处理音频文件请求
+            if '/voice/' in path:
+                print(f"匹配到音频文件请求")
+                filename = path.split('/voice/')[-1]
+                self.serve_audio_file(filename)
+                return
+            
+            # 处理静态文件请求
+            if path.startswith('/static/') or path.startswith('/audio/static/'):
+                file_path = path.replace('/audio/static/', '/static/').lstrip('/')
+                self.serve_static_file(file_path)
+                return
+            
+            # 未找到匹配的路由
+            print(f"未找到匹配的路由: {path}")
+            print("当前支持的路由:")
+            print("- / or /audio/ (主页)")
+            print("- /admin or /audio/admin (管理页面)")
+            print("- /audio/voice/* (音频文件)")
+            print("- /audio/api/admin/files (文件列表)")
+            print("- /audio/api/admin/file/* (文件详情)")
+            print("- /audio/api/admin/whitelist (白名单)")
+            print("- /static/* or /audio/static/* (静态文件)")
+            
+            self.send_error(404, "File not found")
+            
         except Exception as e:
             print(f"处理GET请求时出错: {e}")
-            try:
-                error_message = str(e).encode('utf-8', errors='ignore').decode('utf-8')
-                self.send_error(500, error_message)
-            except:
-                self.send_error(500, "Internal Server Error")
+            print(traceback.format_exc())
+            self.send_error(500, str(e))
 
     def serve_file(self, filepath, content_type):
         """服务静态文件"""
@@ -688,7 +692,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 self.send_error(401, 'Invalid admin key')
                 return
 
-            # 获取文件名
+            # 取文件名
             file_name = os.path.basename(self.path)
             file_path = os.path.join(UPLOAD_DIR, file_name)
             
@@ -843,7 +847,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 file_info = cursor.fetchone()
                 if not file_info:
                     print(f"文件不存在: {filename}")
-                    self.send_json_error(404, "文件��存在")
+                    self.send_json_error(404, "文件不存在")
                     return
                     
                 file_id, filename, original_filename, is_deleted = file_info
@@ -919,6 +923,12 @@ class CustomHandler(BaseHTTPRequestHandler):
         try:
             print(f"\n=== 处理删除白名单 {whitelist_id} ===")
             
+            # 验证管理员权限
+            if not self.verify_admin():
+                print("管理员验证失败")
+                self.send_json_error(401, "Unauthorized")
+                return
+                
             conn = sqlite3.connect('audio_server.db')
             cursor = conn.cursor()
             
@@ -932,10 +942,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                     self.send_json_error(404, "记录不存在")
                     return
                     
-                domain = existing[0]
-                print(f"准备删除域名: {domain}")
-                
-                # 删除记录
+                # 除记录
                 cursor.execute("DELETE FROM whitelist WHERE id = ?", (whitelist_id,))
                 
                 # 记录操作日志
@@ -951,27 +958,18 @@ class CustomHandler(BaseHTTPRequestHandler):
                     self.client_address[0],
                     json.dumps({
                         'whitelist_id': whitelist_id,
-                        'domain': domain
-                    }),
-                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        'domain': existing[0]
+                    })
                 ))
                 
                 conn.commit()
-                print(f"白名单删除成功: {domain}")
+                print(f"白名单删除成功: {whitelist_id}")
                 
                 self.send_json_response({
                     'code': 200,
-                    'message': '删除成功',
-                    'data': {
-                        'id': whitelist_id,
-                        'domain': domain
-                    }
+                    'message': '删除成功'
                 })
                 
-            except sqlite3.Error as e:
-                print(f"数据库操作错误: {e}")
-                conn.rollback()
-                self.send_json_error(500, f"数据库错误: {str(e)}")
             finally:
                 conn.close()
                 
@@ -981,13 +979,13 @@ class CustomHandler(BaseHTTPRequestHandler):
             self.send_json_error(500, str(e))
 
     def handle_file_play(self):
-        """处理文件播放请求"""
+        """处理文件播放请"""
         try:
             print("\n=== 处理文件播放 ===")
             
             # 验证管理员权限
             if not self.verify_admin():
-                print("管理员验证失败")
+                print("管员验证失败")
                 self.send_json_error(401, "Unauthorized")
                 return
                 
@@ -1014,7 +1012,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                     
                 file_id, filename, original_filename = file_info
                 
-                # 记录播放操作
+                # 记录播操作
                 cursor.execute("""
                     INSERT INTO operation_logs (
                         operation_type,
@@ -1055,7 +1053,7 @@ class CustomHandler(BaseHTTPRequestHandler):
             self.send_json_error(500, str(e))
 
     def serve_audio_file(self, filename):
-        """服务音频文件"""
+        """服务频文件"""
         try:
             print(f"\n=== 服务音频文件: {filename} ===")
             
@@ -1092,7 +1090,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                         print(f"发送数据时出错: {e}")
                         return
                     
-            print(f"文件发送成功: {filename}")
+            print(f"文件发成功: {filename}")
             
         except Exception as e:
             print(f"服务音频文件时出错: {e}")
@@ -1103,17 +1101,21 @@ class CustomHandler(BaseHTTPRequestHandler):
                 pass
 
     def do_OPTIONS(self):
-        """处理OPTIONS请求（用于CORS预检）"""
+        """处理 OPTIONS 请求"""
+        print("\n=== 处理 OPTIONS 请求 ===")
+        print(f"请求路径: {self.path}")
+        print(f"请求头: {self.headers}")
+        
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'X-Admin-Key')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
     def handle_logs_query(self):
         """处理日志查询请求"""
         try:
-            print("\n=== 处理日志查询 ===")
+            print("\n=== 处理日志询 ===")
             
             # 验证管理员权限
             if not self.verify_admin():
@@ -1297,7 +1299,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 
                 self.wfile.write(csv_data)
-                print("CSV文件发送成功")
+                print("CSV文件发送功")
                 
             finally:
                 conn.close()
@@ -1489,11 +1491,11 @@ class CustomHandler(BaseHTTPRequestHandler):
     def handle_whitelist_query(self):
         """处理白名单查询请求"""
         try:
-            print("\n=== 处理白名单查询 ===")
+            print("\n=== 处理白名查询 ===")
             
-            # 验证管理员权限
+            # 验管理员权限
             if not self.verify_admin():
-                print("管理员验证失败")
+                print("管理员验证失")
                 self.send_json_error(401, "Unauthorized")
                 return
                 
@@ -1536,7 +1538,7 @@ class CustomHandler(BaseHTTPRequestHandler):
     def handle_whitelist_update(self, whitelist_id):
         """处理更新白名单请求"""
         try:
-            print(f"\n=== 处理更新白名单 {whitelist_id} ===")
+            print(f"\n=== 处理新白名单 {whitelist_id} ===")
             
             # 验证管理员权限
             if not self.verify_admin():
@@ -1552,7 +1554,7 @@ class CustomHandler(BaseHTTPRequestHandler):
             status = 1 if data.get('status') else 0
             description = data.get('description', '').strip()
             
-            print(f"更新白名单: id={whitelist_id}, status={status}, description={description}")
+            print(f"更新白名: id={whitelist_id}, status={status}, description={description}")
             
             conn = sqlite3.connect('audio_server.db')
             cursor = conn.cursor()
@@ -1564,7 +1566,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 
                 if not existing:
                     print(f"白名单记录不存在: {whitelist_id}")
-                    self.send_json_error(404, "记不存在")
+                    self.send_json_error(404, "记录不存在")
                     return
                     
                 # 更新记录
@@ -1600,7 +1602,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 
                 self.send_json_response({
                     'code': 200,
-                    'message': '更新成功',
+                    'message': '新成功',
                     'data': {
                         'id': whitelist_id,
                         'status': status,
@@ -1641,7 +1643,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                     self.send_json_error(404, "记录不存在")
                     return
                     
-                # 删除记录
+                # 除记录
                 cursor.execute("DELETE FROM whitelist WHERE id = ?", (whitelist_id,))
                 
                 # 记录操作日志
@@ -1677,17 +1679,77 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(traceback.format_exc())
             self.send_json_error(500, str(e))
 
+    def save_uploaded_file(self, file_item):
+        """保存上传的文件"""
+        try:
+            print("\n=== 保存上传文件 ===")
+            
+            # 生成安全的文件名
+            original_filename = file_item.filename
+            file_ext = os.path.splitext(original_filename)[1].lower()
+            safe_filename = f"{int(time.time())}_{os.urandom(4).hex()}{file_ext}"
+            
+            print(f"原始文件名: {original_filename}")
+            print(f"安全文件名: {safe_filename}")
+            
+            # 确保上传目录存在
+            if not os.path.exists(UPLOAD_DIR):
+                print(f"创建上传目录: {UPLOAD_DIR}")
+                os.makedirs(UPLOAD_DIR)
+                
+            # 完整的文件路径
+            file_path = os.path.join(UPLOAD_DIR, safe_filename)
+            print(f"保存路径: {file_path}")
+            
+            # 写入文件
+            with open(file_path, 'wb') as f:
+                f.write(file_item.value)
+                
+            print(f"文件大小: {os.path.getsize(file_path)} 字节")
+            
+            # 记录到数据库
+            conn = sqlite3.connect('audio_server.db')
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            INSERT INTO audio_files (
+                filename, original_filename, file_path,
+                file_size, upload_time, uploader_ip, 
+                mime_type, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                safe_filename,
+                original_filename,
+                file_path,
+                os.path.getsize(file_path),
+                datetime.now(),
+                self.client_address[0],
+                file_item.type,
+                'active'
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            print("文件保存成功")
+            return safe_filename
+            
+        except Exception as e:
+            print(f"保存文件时出错: {e}")
+            print(traceback.format_exc())
+            raise
+
 class Logger:
     def __init__(self, log_dir='logs'):
         """初始化日志管理器"""
-        print("\n=== 初始化日志管理器 ===")
+        print("\n=== 初始��日志管理器 ===")
         # 确保日志目录存在
         self.log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), log_dir)
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
             print(f"创建日志目录: {self.log_dir}")
             
-        # 设置日志文件路径
+        # 设置日志文路径
         current_date = datetime.now().strftime('%Y%m%d')
         self.log_file = os.path.join(self.log_dir, f'server_{current_date}.log')
         print(f"日志文件: {self.log_file}")
@@ -1726,76 +1788,57 @@ class Logger:
 
 class DatabaseManager:
     def __init__(self):
-        print("\n=== 初始化数据库管理器 ===")
+        print("\n=== 初始化数据管理器 ===")
         self.db_file = 'audio_server.db'
         self.init_database()
         
     def init_database(self):
         """初始化数据库"""
         try:
-            print("\n=== 初始化数据库 ===")
-            conn = sqlite3.connect('audio_server.db')
+            conn = sqlite3.connect(self.db_file)
             cursor = conn.cursor()
             
             # 创建音频文件表
-            cursor.execute("""
+            cursor.execute('''
             CREATE TABLE IF NOT EXISTS audio_files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT NOT NULL UNIQUE,
-                original_filename TEXT,
-                file_size INTEGER,
-                upload_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                status TEXT DEFAULT 'active',
-                is_deleted INTEGER DEFAULT 0,
-                delete_time DATETIME,
-                uploader_ip TEXT
+                filename TEXT NOT NULL,
+                original_filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                mime_type TEXT,
+                upload_time DATETIME NOT NULL,
+                uploader_ip TEXT,
+                play_count INTEGER DEFAULT 0,
+                last_play_time DATETIME,
+                status TEXT DEFAULT 'active'
             )
-            """)
+            ''')
             
             # 创建操作日志表
-            cursor.execute("""
+            cursor.execute('''
             CREATE TABLE IF NOT EXISTS operation_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id INTEGER NOT NULL,
+                file_id INTEGER,
                 operation_type TEXT NOT NULL,
-                operation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                operation_time DATETIME NOT NULL,
                 operator_ip TEXT,
                 details TEXT,
-                FOREIGN KEY (file_id) REFERENCES audio_files(id)
+                FOREIGN KEY (file_id) REFERENCES audio_files (id)
             )
-            """)
-            
-            # 创建白名单表
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS whitelist (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                domain TEXT NOT NULL UNIQUE,
-                description TEXT,
-                status INTEGER DEFAULT 1,
-                create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                update_time DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """)
-            
-            # 插入默认域名
-            cursor.execute("""
-            INSERT OR IGNORE INTO whitelist (domain, description)
-            VALUES 
-                ('localhost', '本地开发环境'),
-                ('127.0.0.1', '本地IP地址')
-            """)
+            ''')
             
             conn.commit()
             conn.close()
+            print("数据库初始化完成")
             
         except Exception as e:
             print(f"初始化数据库时出错: {e}")
             print(traceback.format_exc())
-        finally:
-            conn.close()
+            raise
     
     def add_audio_file(self, file_data):
-        """添加音频文记录"""
+        """添音频文记录"""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         
@@ -1840,7 +1883,7 @@ class DatabaseManager:
             conn.close()
     
     def mark_file_deleted(self, filename, delete_data):
-        """标记文件为已删除"""
+        """标记文件为已删"""
         conn = sqlite3.connect(self.db_file)
         cursor = conn.cursor()
         
@@ -1962,6 +2005,6 @@ if os.path.exists('audio_server.db'):
     os.remove('audio_server.db')
     print("已删除旧数据库")
 
-# 初始化新数据库
+# 初始化数据库
 db_manager = DatabaseManager()
 db_manager.init_database()

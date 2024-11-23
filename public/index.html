@@ -1,156 +1,187 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>音频文件上传</title>
+    <title>Audio Server</title>
     <meta charset="UTF-8">
     <style>
-        .container {
+        body {
+            font-family: 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
             max-width: 800px;
             margin: 0 auto;
             padding: 20px;
-        }
-        .upload-section {
-            margin-bottom: 20px;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            background: #f8f9fa;
-        }
-        .file-info {
-            margin-top: 20px;
-            padding: 15px;
             background: #f5f5f5;
-            border-radius: 5px;
-            display: none;
         }
-        .message {
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
-            display: none;
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
         }
-        .success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+
+        .upload-form {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
         }
-        .error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        .audio-player {
-            margin-top: 10px;
+
+        .upload-form input[type="file"] {
+            display: block;
             width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
-        button {
-            padding: 8px 15px;
-            background: #007bff;
+
+        .upload-form button {
+            background: #4CAF50;
             color: white;
+            padding: 10px 20px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            font-size: 16px;
         }
-        button:hover {
-            background: #0056b3;
+
+        .upload-form button:hover {
+            background: #45a049;
         }
-        input[type="file"] {
+
+        .upload-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+
+        .upload-history {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .history-item {
+            border-bottom: 1px solid #eee;
+            padding: 15px 0;
+        }
+
+        .history-item:last-child {
+            border-bottom: none;
+        }
+
+        .history-item p {
+            margin: 5px 0;
+            color: #666;
+        }
+
+        .history-item audio {
+            width: 100%;
             margin: 10px 0;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            padding: 20px;
+            color: #666;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="upload-section">
-            <h2>音频文件上传</h2>
-            <input type="file" id="fileInput" accept="audio/*">
-            <button onclick="uploadFile()">上传</button>
-        </div>
-        
-        <div id="message" class="message"></div>
-        
-        <div id="fileInfo" class="file-info">
-            <h3>文件信息</h3>
-            <p>文件名: <span id="fileName"></span></p>
-            <p>上传时间: <span id="uploadTime"></span></p>
-            <p>文件大小: <span id="fileSize"></span></p>
-            <p>状态: <span id="fileStatus"></span></p>
-            <div id="audioPlayer">
-                <audio controls class="audio-player">
-                    <source id="audioSource" src="" type="audio/mpeg">
-                    您的浏览器不支持音频播放
-                </audio>
-            </div>
-        </div>
+    <h1>音频服务器</h1>
+    
+    <div class="upload-form">
+        <h2>文件上传</h2>
+        <input type="file" id="fileInput" accept="audio/*" />
+        <button onclick="uploadFile()">上传文件</button>
+    </div>
+
+    <div id="uploadHistory" class="upload-history">
+        <h2>上传历史</h2>
     </div>
 
     <script>
-    async function uploadFile() {
-        const fileInput = document.getElementById('fileInput');
-        const file = fileInput.files[0];
-        
-        if (!file) {
-            showMessage('请选择要上传的文件', 'error');
-            return;
-        }
-        
-        try {
+        function uploadFile() {
+            console.log('开始上传处理...');
+            
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('请选择文件');
+                return;
+            }
+            
             const formData = new FormData();
             formData.append('file', file);
             
-            const response = await fetch('/api/upload', {
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'upload-status';
+            statusDiv.textContent = '正在上传...';
+            document.body.appendChild(statusDiv);
+            
+            fetch('/audio/api/upload', {
                 method: 'POST',
                 body: formData
-            });
-            
-            if (!response.ok) {
-                throw new Error(`上传失败 (${response.status})`);
-            }
-            
-            const result = await response.json();
-            
-            if (result.code === 200) {
-                showMessage('上传成功', 'success');
-                displayFileInfo(result.data);
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`上传失败: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('上传成功:', data);
+                
+                const playUrl = `/audio/voice/${data.filename}`;
+                statusDiv.innerHTML = `
+                    <div class="upload-result">
+                        <p>上传成功!</p>
+                        <p>播放链接: <a href="${playUrl}" target="_blank">${data.filename}</a></p>
+                        <audio controls>
+                            <source src="${playUrl}" type="audio/mpeg">
+                            您的浏览器不支持音频播放
+                        </audio>
+                    </div>
+                `;
+                
+                const historyDiv = document.getElementById('uploadHistory');
+                const historyItem = document.createElement('div');
+                historyItem.className = 'history-item';
+                historyItem.innerHTML = `
+                    <p>文件名: ${data.filename}</p>
+                    <audio controls>
+                        <source src="${playUrl}" type="audio/mpeg">
+                    </audio>
+                    <p>上传时间: ${new Date().toLocaleString()}</p>
+                `;
+                historyDiv.insertBefore(historyItem, historyDiv.querySelector('h2').nextSibling);
+                
                 fileInput.value = '';
-            } else {
-                throw new Error(result.message || '上传失败');
-            }
-        } catch (error) {
-            showMessage(error.message, 'error');
+            })
+            .catch(error => {
+                console.error('上传错误:', error);
+                statusDiv.textContent = `上传失败: ${error.message}`;
+                setTimeout(() => statusDiv.remove(), 3000);
+            });
         }
-    }
-
-    function displayFileInfo(fileData) {
-        document.getElementById('fileInfo').style.display = 'block';
-        document.getElementById('fileName').textContent = fileData.filename;
-        document.getElementById('uploadTime').textContent = new Date().toLocaleString();
-        document.getElementById('fileSize').textContent = formatSize(fileData.size || 0);
-        document.getElementById('fileStatus').textContent = '上传成功';
-        
-        const audioSource = document.getElementById('audioSource');
-        audioSource.src = fileData.file_url;
-        audioSource.parentElement.load();
-    }
-
-    function showMessage(message, type) {
-        const messageDiv = document.getElementById('message');
-        messageDiv.textContent = message;
-        messageDiv.className = `message ${type}`;
-        messageDiv.style.display = 'block';
-        
-        setTimeout(() => {
-            messageDiv.style.display = 'none';
-        }, 5000);
-    }
-
-    function formatSize(bytes) {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
     </script>
+
+    <footer class="footer">
+        <p>Audio Server v1.98</p>
+    </footer>
 </body>
 </html>
