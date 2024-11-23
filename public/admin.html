@@ -3,9 +3,77 @@
 <head>
     <title>音频文件管理系统</title>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="/audio/static/css/admin.css">
     <style>
-        /* 基础样式保持不变 */
+        /* 基础样式 */
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        /* 登录面板样式 */
+        #loginPanel {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 400px;
+            margin: 100px auto;
+            text-align: center;
+        }
+        #loginPanel input {
+            width: 80%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        #loginPanel button {
+            background: #1890ff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        /* 管理面板样式 */
+        #adminPanel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .file-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .file-table th, .file-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .file-table th {
+            background: #f5f5f5;
+        }
+        .delete-btn {
+            background: #ff4d4f;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -23,21 +91,24 @@
         <!-- 管理面板 -->
         <div id="adminPanel" style="display:none">
             <div class="header">
-                <h1>音频文件管理系统 <span class="version">V1.98</span></h1>
-                <button onclick="logout()" class="logout-btn">登出</button>
+                <h1>音频文件管理系统</h1>
+                <button onclick="logout()" style="background: #ff4d4f;">登出</button>
             </div>
             
-            <!-- 导航标签 -->
-            <div class="nav-tabs">
-                <button class="tab-btn active" onclick="switchTab('files')">文件管理</button>
-                <button class="tab-btn" onclick="switchTab('whitelist')">白名单管理</button>
-                <button class="tab-btn" onclick="switchTab('logs')">系统日志</button>
-            </div>
-
-            <!-- 内容区域 -->
-            <div class="content">
-                <!-- 标签页内容 -->
-            </div>
+            <!-- 文件列表 -->
+            <table class="file-table">
+                <thead>
+                    <tr>
+                        <th>文件名</th>
+                        <th>上传时间</th>
+                        <th>文件大小</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="fileList">
+                    <!-- 文件列表将通过 JavaScript 动态填充 -->
+                </tbody>
+            </table>
         </div>
     </div>
 
@@ -46,8 +117,7 @@
         const API_PATHS = {
             verify: '/audio/api/admin/verify',
             files: '/audio/api/admin/files',
-            whitelist: '/audio/api/admin/whitelist',
-            logs: '/audio/api/admin/logs'
+            delete: '/audio/api/admin/delete'
         };
 
         // 验证管理员身份
@@ -61,7 +131,6 @@
             }
 
             try {
-                console.log('发送验证请求...');  // 调试日志
                 const response = await fetch(API_PATHS.verify, {
                     method: 'POST',
                     headers: {
@@ -70,26 +139,21 @@
                     body: JSON.stringify({ password: password })
                 });
 
-                const data = await response.json();
-                console.log('验证响应:', data);  // 调试日志
-
-                if (response.ok) {  // 只检查响应状态
-                    console.log('验证成功，显示管理面板');  // 调试日志
-                    // 保存token
-                    localStorage.setItem('admin_token', data.token || '');
+                if (response.ok) {
+                    // 保存密钥用于后续请求
+                    localStorage.setItem('adminKey', password);
                     // 显示管理面板
                     document.getElementById('loginPanel').style.display = 'none';
                     document.getElementById('adminPanel').style.display = 'block';
                     messageDiv.textContent = '';
-                    // 加载初始数据
+                    // 加载文件列表
                     loadFiles();
                 } else {
-                    console.log('验证失败:', data.message);  // 调试日志
-                    messageDiv.textContent = data.message || '验证失败';
+                    messageDiv.textContent = '验证失败，请重试';
                     document.getElementById('adminKey').value = '';
                 }
             } catch (error) {
-                console.error('验证请求失败:', error);  // 调试日志
+                console.error('验证失败:', error);
                 messageDiv.textContent = '验证失败，请重试';
             }
         }
@@ -97,35 +161,105 @@
         // 加载文件列表
         async function loadFiles() {
             try {
+                const adminKey = localStorage.getItem('adminKey');
+                if (!adminKey) {
+                    console.error('未找到管理密钥');
+                    return;
+                }
+
                 const response = await fetch(API_PATHS.files, {
                     headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('admin_token')}`
+                        'X-Admin-Key': adminKey
                     }
                 });
                 const data = await response.json();
-                // 处理文件列表数据
-                console.log('文件列表:', data);
+                
+                if (data.code === 200) {
+                    renderFileList(data.data);
+                } else {
+                    alert('获取文件列表失败');
+                }
             } catch (error) {
                 console.error('加载文件列表失败:', error);
+                alert('加载文件列表失败');
+            }
+        }
+
+        // 渲染文件列表
+        function renderFileList(files) {
+            const tbody = document.getElementById('fileList');
+            tbody.innerHTML = '';
+            
+            files.forEach(file => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${file.filename}</td>
+                    <td>${file.upload_time}</td>
+                    <td>${formatFileSize(file.file_size)}</td>
+                    <td>
+                        <button onclick="playFile('${file.filename}')">播放</button>
+                        <button onclick="deleteFile('${file.filename}')" class="delete-btn">删除</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // 播放文件
+        function playFile(filename) {
+            const audio = new Audio(`/audio/voice/${filename}`);
+            audio.play();
+        }
+
+        // 删除文件
+        async function deleteFile(filename) {
+            if (!confirm(`确定要删除文件 ${filename} 吗？`)) {
+                return;
+            }
+            
+            try {
+                const adminKey = localStorage.getItem('adminKey');
+                if (!adminKey) {
+                    console.error('未找到管理密钥');
+                    return;
+                }
+
+                const response = await fetch(`${API_PATHS.delete}/${filename}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Admin-Key': adminKey
+                    }
+                });
+                
+                const data = await response.json();
+                if (data.code === 200) {
+                    alert('文件删除成功');
+                    loadFiles(); // 刷新文件列表
+                } else {
+                    alert('删除文件失败');
+                }
+            } catch (error) {
+                console.error('删除文件失败:', error);
+                alert('删除文件失败');
             }
         }
 
         // 登出
         function logout() {
-            localStorage.removeItem('admin_token');
+            localStorage.removeItem('adminKey');  // 清除存储的密钥
             document.getElementById('loginPanel').style.display = 'block';
             document.getElementById('adminPanel').style.display = 'none';
             document.getElementById('adminKey').value = '';
             document.getElementById('loginMessage').textContent = '';
-        }
-
-        // 切换标签页
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-            // 这里添加标签页切换逻辑
         }
 
         // 添加回车键支持
@@ -134,13 +268,6 @@
                 verifyAdmin();
             }
         });
-
-        // 检查是否已登录
-        if (localStorage.getItem('admin_token')) {
-            document.getElementById('loginPanel').style.display = 'none';
-            document.getElementById('adminPanel').style.display = 'block';
-            loadFiles();
-        }
     </script>
 </body>
 </html> 
