@@ -1,1 +1,1 @@
-admin_key: dgp432126
+admin_key

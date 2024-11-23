@@ -14,6 +14,7 @@ import sqlite3
 import logging
 import io
 import csv
+import uuid
 
 # 基础配置
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'public')
@@ -82,57 +83,15 @@ class ConfigManager:
             'upload_dir': 'voice',
             'max_file_size': 100 * 1024 * 1024  # 100MB
         }
-        self._load_admin_key()
+        # 直接设置管理员密钥
+        self._admin_key = 'dgp432126'
         print(f"配置加载完成，管理员密钥: {self._admin_key}")
-        
-    def _load_admin_key(self):
-        """从文件加载管理员密钥"""
-        try:
-            key_file = 'api_key.txt'
-            print(f"尝试加载密钥文件: {key_file}")
-            
-            # 获取当前脚本的绝对路径
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            key_file_path = os.path.join(current_dir, key_file)
-            print(f"密钥文件完整路径: {key_file_path}")
-            
-            if not os.path.exists(key_file_path):
-                print(f"钥文件不存在: {key_file_path}")
-                return
-                
-            with open(key_file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                print(f"读取到的文件内容: {content}")
-                
-                # 尝试解析内容
-                if content:
-                    if content.startswith('{'):
-                        # JSON 格式
-                        try:
-                            data = json.loads(content)
-                            key = data.get('admin_key')
-                            if key:
-                                print(f"从JSON成功加载管理员密钥: {key}")
-                                self._admin_key = key
-                                return
-                        except json.JSONDecodeError:
-                            print("JSON解析失败")
-                    else:
-                        # 普通文本格式
-                        lines = content.split('\n')
-                        for line in lines:
-                            if 'admin_key' in line:
-                                key = line.split(':')[1].strip().strip('"').strip("'")
-                                print(f"从文本成功加载管理员密钥: {key}")
-                                self._admin_key = key
-                                return
-                                
-                print("未找到有效的管理员密钥")
-                
-        except Exception as e:
-            print(f"加载管理员密钥时出错: {e}")
-            print(traceback.format_exc())
-            
+
+    @property
+    def admin_key(self):
+        """获取管理员密钥"""
+        return self._admin_key
+
     def verify_admin_key(self, provided_key):
         """验证管理员密钥"""
         try:
@@ -247,7 +206,7 @@ class FileCleanupThread(threading.Thread):
                 })
                 
         except Exception as e:
-            print(f"清理文件时出错: {e}")
+            print(f"理文件时出错: {e}")
             print(traceback.format_exc())
             self.logger.log('cleanup_error', {
                 'error': str(e)
@@ -398,7 +357,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                     'message': 'File uploaded successfully',
                     'filename': filename
                 }
-                print(f"返回响应: {response_data}")
+                print(f"回响应: {response_data}")
                 self.send_json_response(response_data)
                 
             except Exception as e:
@@ -416,17 +375,18 @@ class CustomHandler(BaseHTTPRequestHandler):
         """发送JSON响应"""
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
-    def send_json_error(self, code, message):
+    def send_json_error(self, status_code, message):
         """发送JSON错误响应"""
-        self.send_response(code)
+        self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps({
             'status': 'error',
-            'code': code,
             'message': message
         }).encode())
 
@@ -436,31 +396,54 @@ class CustomHandler(BaseHTTPRequestHandler):
             print("\n=== 处理管理员验证 ===")
             print(f"请求路径: {self.path}")
             
+            # 读取请求数据
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode('utf-8'))
-            
             print(f"接收到的数据: {data}")
             
-            input_key = data.get('key', '')
+            # 获取密码并去除空白字符
+            input_password = data.get('password', '').strip()
+            config_manager = ConfigManager()
+            correct_password = config_manager.admin_key  # 使用属性访问
             
-            print(f"输入的密钥: {input_key}")
-            print(f"正确的密钥: {self.ADMIN_KEY}")
+            print(f"输入的密码: {input_password}")
+            print(f"正确的密码: {correct_password}")
             
-            if input_key == self.ADMIN_KEY:
-                print("验证成功")
-                self.send_json_response({
+            # 验证密码
+            if input_password and correct_password and input_password == correct_password:
+                # 生成 token
+                token = str(uuid.uuid4())
+                
+                # 返回成功响应
+                response_data = {
                     'status': 'success',
-                    'message': 'Admin verified successfully'
-                })
+                    'message': '验证成功',
+                    'token': token
+                }
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps(response_data).encode())
+                print("验证成功")
             else:
+                # 返回失败响应
+                response_data = {
+                    'status': 'error',
+                    'message': '密码错误'
+                }
+                self.send_response(401)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps(response_data).encode())
                 print("验证失败")
-                self.send_json_error(401, "Invalid admin key")
                 
         except Exception as e:
-            print(f"处理管理员验证时出错: {e}")
+            print(f"验证处理失败: {e}")
             print(traceback.format_exc())
-            self.send_json_error(500, str(e))
+            self.send_error(500, str(e))
 
     def verify_admin(self):
         """验证管理员权限"""
@@ -533,41 +516,49 @@ class CustomHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         """处理GET请求"""
         try:
-            print(f"\n=== 处理GET请求 ===")
+            print("\n=== 处理GET请求 ===")
             print(f"请求路径: {self.path}")
-            print(f"请求头: {self.headers}")
-            print(f"请求方法: {self.command}")
             
             # 规范化路径
             path = self.path.rstrip('/')
             
+            # 处理静态文件请求
+            if '/static/' in path:
+                self.serve_static_file()
+                return
+            
+            # 处理favicon.ico请求
+            if path.endswith('favicon.ico'):
+                self.serve_favicon()
+                return
+            
             # 处理主页请求
-            if path == '' or path == '/' or path == '/audio' or path == '/audio/':
+            if self.path == '' or self.path == '/' or self.path == '/audio' or self.path == '/audio/':
                 print("匹配到主页路由")
                 self.serve_file('public/index.html', 'text/html')
                 return
             
             # 处理管理页面请求
-            if path == '/admin' or path == '/audio/admin':
+            if self.path == '/admin' or self.path == '/audio/admin':
                 print("匹配到管理页面路由")
                 self.serve_file('public/admin.html', 'text/html')
                 return
             
             # 处理音频文件请求
-            if '/voice/' in path:
+            if '/voice/' in self.path:
                 print(f"匹配到音频文件请求")
-                filename = path.split('/voice/')[-1]
+                filename = self.path.split('/voice/')[-1]
                 self.serve_audio_file(filename)
                 return
             
             # 处理静态文件请求
-            if path.startswith('/static/') or path.startswith('/audio/static/'):
-                file_path = path.replace('/audio/static/', '/static/').lstrip('/')
+            if self.path.startswith('/static/') or self.path.startswith('/audio/static/'):
+                file_path = self.path.replace('/audio/static/', '/static/').lstrip('/')
                 self.serve_static_file(file_path)
                 return
             
             # 未找到匹配的路由
-            print(f"未找到匹配的路由: {path}")
+            print(f"未找到匹配的路由: {self.path}")
             print("当前支持的路由:")
             print("- / or /audio/ (主页)")
             print("- /admin or /audio/admin (管理页面)")
@@ -794,7 +785,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         """处理DELETE请求"""
         try:
             print(f"\n=== 处理DELETE请求 ===")
-            print(f"请求路径: {self.path}")
+            print(f"请求径: {self.path}")
             
             # 验证管理员权限
             if not self.verify_admin():
@@ -1427,7 +1418,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                     self.send_json_error(400, "域名已存在")
                     return
                     
-                # 添加白名单记录
+                # 添加名单记录
                 cursor.execute("""
                     INSERT INTO whitelist (
                         domain, 
@@ -1694,7 +1685,7 @@ class CustomHandler(BaseHTTPRequestHandler):
             
             # 确保上传目录存在
             if not os.path.exists(UPLOAD_DIR):
-                print(f"创建上传目录: {UPLOAD_DIR}")
+                print(f"创建传目录: {UPLOAD_DIR}")
                 os.makedirs(UPLOAD_DIR)
                 
             # 完整的文件路径
@@ -1739,10 +1730,68 @@ class CustomHandler(BaseHTTPRequestHandler):
             print(traceback.format_exc())
             raise
 
+    def serve_static_file(self):
+        """服务静态文件"""
+        try:
+            # 从路径中提取文件路径
+            file_path = self.path
+            if '/audio/static/' in file_path:
+                file_path = file_path.replace('/audio/static/', '/static/')
+            
+            # 构建完整的文件路径
+            full_path = os.path.join('public', file_path.lstrip('/'))
+            
+            if os.path.exists(full_path) and os.path.isfile(full_path):
+                # 获取文件类型
+                content_type = {
+                    '.css': 'text/css',
+                    '.js': 'application/javascript',
+                    '.ico': 'image/x-icon',
+                    '.png': 'image/png',
+                    '.jpg': 'image/jpeg',
+                    '.gif': 'image/gif'
+                }.get(os.path.splitext(full_path)[1], 'application/octet-stream')
+                
+                with open(full_path, 'rb') as f:
+                    content = f.read()
+                    
+                self.send_response(200)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', len(content))
+                self.send_header('Cache-Control', 'public, max-age=31536000')
+                self.end_headers()
+                self.wfile.write(content)
+            else:
+                print(f"文件不存在: {full_path}")
+                self.send_error(404, "File not found")
+        except Exception as e:
+            print(f"服务静态文件时出错: {e}")
+            self.send_error(500, str(e))
+
+    def serve_favicon(self):
+        """服务favicon.ico"""
+        try:
+            favicon_path = os.path.join('public', 'static', 'favicon.ico')
+            if os.path.exists(favicon_path):
+                with open(favicon_path, 'rb') as f:
+                    content = f.read()
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'image/x-icon')
+                self.send_header('Content-Length', len(content))
+                self.send_header('Cache-Control', 'public, max-age=31536000')
+                self.end_headers()
+                self.wfile.write(content)
+            else:
+                self.send_error(404, "Favicon not found")
+        except Exception as e:
+            print(f"服务favicon时出错: {e}")
+            self.send_error(500, str(e))
+
 class Logger:
     def __init__(self, log_dir='logs'):
         """初始化日志管理器"""
-        print("\n=== 初始��日志管理器 ===")
+        print("\n=== 初始日志管理器 ===")
         # 确保日志目录存在
         self.log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), log_dir)
         if not os.path.exists(self.log_dir):
@@ -1973,6 +2022,10 @@ class DatabaseManager:
 def run_server(port=8000):
     """运行服务器"""
     try:
+        # 预先初始化配置管理器
+        config_manager = ConfigManager()
+        print(f"服务器启动时的管理员密钥: {config_manager.admin_key}")
+        
         # 预先初始化处理器组件
         CustomHandler.initialize()
         
