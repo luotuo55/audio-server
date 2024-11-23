@@ -21,7 +21,7 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'public')
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'voice')
 
 # 版本信息
-VERSION = "V2.17"
+VERSION = "V2.18"
 VERSION_INFO = {
     'version': VERSION,
     'release_date': '2024-03-19',
@@ -259,117 +259,90 @@ class CustomHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         """处理POST请求"""
         try:
-            print(f"\n=== 处理POST请求 ===")
+            print("\n=== 处理POST请求 ===")
             print(f"请求路径: {self.path}")
             print(f"请求头: {self.headers}")
-            print(f"请求方法: {self.command}")
+            print(f"\n请求方法: POST")
             
             # 规范化路径
             path = self.path.rstrip('/')
             if path.startswith('/audio'):
-                path = path[6:]  # 移除 /audio 前缀
-            
+                path = path[6:]
             print(f"处理后的路径: {path}")
             
-            # 处理路径
-            if path in ['/api/upload', '/upload']:
-                print(f"匹配到文件上传API路由")
-                self.handle_file_upload()
-            elif path in ['/api/admin/verify']:
-                print(f"匹配到管理员验证API路由")
+            # 路由匹配
+            if path == '/api/upload':
+                print("匹配到文件上传API路由")
+                self.handle_upload()
+            elif path == '/api/admin/verify':
+                print("匹配到管理员验证API路由")
                 self.handle_admin_verify()
-            elif path.startswith('/api/admin/play/'):
-                print(f"匹配到音频播放API路由")
-                self.handle_file_play()
             else:
                 print(f"未找到匹配的路由: {path}")
-                print(f"原始路径: {self.path}")
-                print(f"当前支持的POST路由:")
-                print("- /api/upload")
-                print("- /upload")
-                print("- /api/admin/verify")
-                print("- /api/admin/play/*")
-                self.send_error(404, "Not Found")
+                self.send_error(404, "API not found")
                 
         except Exception as e:
-            print(f"处理POST请求时出错: {e}")
-            print(f"错误类型: {type(e)}")
-            print(f"错误堆栈:")
+            print(f"处理POST请求失败: {e}")
             print(traceback.format_exc())
             self.send_error(500, str(e))
 
-    def handle_file_upload(self):
+    def handle_upload(self):
         """处理文件上传"""
         try:
             print("\n=== 处理文件上传 ===")
-            print(f"完整请求路径: {self.path}")
-            print(f"请求方法: {self.command}")
-            print(f"请求头信息:")
-            for header, value in self.headers.items():
-                print(f"  {header}: {value}")
             
-            # 验证 Content-Type
-            content_type = self.headers.get('Content-Type', '')
-            print(f"Content-Type: {content_type}")
-            if not content_type.startswith('multipart/form-data'):
-                print("错误: Content-Type 不是 multipart/form-data")
-                self.send_json_error(400, "Invalid Content-Type")
-                return
+            # 获取Content-Type和boundary
+            content_type = self.headers['content-type']
             
-            # 获取请求体大小
-            content_length = int(self.headers.get('Content-Length', 0))
-            print(f"上传文件大小: {content_length} 字节")
-            
-            # 解析表单数据
-            print("开始解析表单数据...")
+            # 解析multipart数据
             form = cgi.FieldStorage(
                 fp=self.rfile,
                 headers=self.headers,
-                environ={
-                    'REQUEST_METHOD': 'POST',
-                    'CONTENT_TYPE': content_type,
-                    'CONTENT_LENGTH': str(content_length)
-                }
+                environ={'REQUEST_METHOD': 'POST'}
             )
             
-            print(f"表单字段列表: {list(form.keys())}")
-            
-            # 检查文件字段
+            # 获取上传的文件
             if 'file' not in form:
-                print("错误: 表单中没有找到文件字段")
-                self.send_json_error(400, "No file field in form")
+                self.send_json_error(400, "未找到上传的文件")
                 return
             
-            file_item = form['file']
-            print(f"文件信息:")
-            print(f"  - 原始文件名: {file_item.filename}")
-            print(f"  - 文件类型: {file_item.type}")
-            print(f"  - 文件大小: {len(file_item.value)} 字节")
+            fileitem = form['file']
+            filename = fileitem.filename
+            
+            if not filename:
+                self.send_json_error(400, "文件名为空")
+                return
+            
+            # 检查文件类型
+            if not filename.lower().endswith('.mp3'):
+                self.send_json_error(400, "只支持MP3格式文件")
+                return
+            
+            # 生成新的文件名
+            timestamp = int(time.time())
+            random_str = uuid.uuid4().hex[:8]
+            new_filename = f"{timestamp}_{random_str}.mp3"
             
             # 保存文件
-            try:
-                filename = self.save_uploaded_file(file_item)
-                print(f"文件保存成功: {filename}")
-                
-                # 返回成功响应
-                response_data = {
-                    'status': 'success',
-                    'message': 'File uploaded successfully',
-                    'filename': filename
+            file_path = os.path.join(UPLOAD_DIR, new_filename)
+            with open(file_path, 'wb') as f:
+                f.write(fileitem.file.read())
+            
+            print(f"文件保存成功: {file_path}")
+            
+            # 返回成功响应
+            self.send_json_response({
+                'code': 200,
+                'message': '文件上传成功',
+                'data': {
+                    'filename': new_filename
                 }
-                print(f"回响应: {response_data}")
-                self.send_json_response(response_data)
-                
-            except Exception as e:
-                print(f"保存文件时出错: {e}")
-                print(traceback.format_exc())
-                self.send_json_error(500, f"Failed to save file: {str(e)}")
-                
+            })
+            
         except Exception as e:
-            print(f"处理上传请求时出错: {e}")
-            print(f"错误类型: {type(e)}")
+            print(f"处理文件上传失败: {e}")
             print(traceback.format_exc())
-            self.send_json_error(500, str(e))
+            self.send_error(500, str(e))
 
     def send_json_response(self, data):
         """发送JSON响应"""
@@ -1027,7 +1000,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 writer.writerow(['操作时间', '操作类型', '操作者IP', '文件名', '详情'])
                 
                 type_map = {
-                    'upload': '上��',
+                    'upload': '上',
                     'play': '播放',
                     'delete': '删除',
                     'whitelist_add': '添加白名单',
@@ -1448,7 +1421,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         try:
             print("\n=== 保存上传文件 ===")
             
-            # 生成安全的文件名
+            # 生成���全的文件名
             original_filename = file_item.filename
             file_ext = os.path.splitext(original_filename)[1].lower()
             safe_filename = f"{int(time.time())}_{os.urandom(4).hex()}{file_ext}"

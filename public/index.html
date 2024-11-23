@@ -106,7 +106,12 @@
     <div class="upload-form">
         <h2>文件上传</h2>
         <input type="file" id="fileInput" accept="audio/*" />
-        <button onclick="uploadFile()">上传文件</button>
+        <button onclick="handleUpload()">上传文件</button>
+        <div id="uploadStatus"></div>
+        <div id="progressBar" style="display:none">
+            <div id="progress"></div>
+        </div>
+        <div id="errorMessage" style="color: red;"></div>
     </div>
 
     <div id="uploadHistory" class="upload-history">
@@ -114,7 +119,34 @@
     </div>
 
     <script>
-        async function uploadFile(file) {
+        // 获取DOM元素
+        const uploadStatus = document.getElementById('uploadStatus');
+        const progressBar = document.getElementById('progressBar');
+        const progress = document.getElementById('progress');
+        const errorMessage = document.getElementById('errorMessage');
+
+        // 处理文件上传
+        async function handleUpload() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showError('请选择要上传的文件');
+                return;
+            }
+
+            // 检查文件类型
+            if (!file.type.startsWith('audio/')) {
+                showError('只能上传音频文件');
+                return;
+            }
+
+            // 检查文件大小（100MB限制）
+            if (file.size > 100 * 1024 * 1024) {
+                showError('文件大小不能超过100MB');
+                return;
+            }
+
             try {
                 const formData = new FormData();
                 formData.append('file', file);
@@ -129,16 +161,32 @@
                 });
 
                 const result = await response.json();
-                // ... 其余代码保持不变
+                
+                if (result.code === 200) {
+                    uploadStatus.textContent = '上传成功';
+                    fileInput.value = ''; // 清空文件选择
+                    setTimeout(() => {
+                        uploadStatus.textContent = '';
+                        progressBar.style.display = 'none';
+                    }, 3000);
+                } else {
+                    showError(result.message || '上传失败');
+                }
             } catch (error) {
                 console.error('上传失败:', error);
                 showError('上传失败，请重试');
             }
         }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            uploadStatus.textContent = '';
+            progressBar.style.display = 'none';
+        }
     </script>
 
     <footer class="footer">
-        <p>音频服务器 V2.17</p>
+        <p>音频服务器 V2.18</p>
     </footer>
 </body>
 </html>
