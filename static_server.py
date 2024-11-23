@@ -21,7 +21,7 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'public')
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'voice')
 
 # 版本信息
-VERSION = "1.98"
+VERSION = "V2.17"
 VERSION_INFO = {
     'version': VERSION,
     'release_date': '2024-03-19',
@@ -233,9 +233,9 @@ def handle_errors(func):
 
 class CustomHandler(BaseHTTPRequestHandler):
     """HTTP请求处理器"""
-    VERSION = "1.98"
+    VERSION = "V2.17"
     SERVER_NAME = f"Audio Server v{VERSION}"
-    ADMIN_KEY = "dgp432126"  # 直接定义为类变量
+    ADMIN_KEY = "dgp432126"  # 直定义为类变量
     
     config_manager = ConfigManager()
     logger = None
@@ -522,15 +522,15 @@ class CustomHandler(BaseHTTPRequestHandler):
             path = self.path.rstrip('/')
             
             # 路由匹配
-            if path == '/audio/admin':
-                self.serve_admin_page()
-            elif path == '/audio/api/admin/files':
-                self.handle_admin_files()
-            elif path.startswith('/audio/voice/'):
-                self.handle_voice_file()
-            elif path == '/audio' or path == '/audio/':
+            if path == '/' or path == '':
                 self.serve_index_page()
-            elif path.startswith('/audio/static/'):
+            elif path == '/admin':
+                self.serve_admin_page()
+            elif path == '/api/admin/files':
+                self.handle_admin_files()
+            elif path.startswith('/voice/'):
+                self.handle_voice_file()
+            elif path.startswith('/static/'):
                 self.serve_static_file()
             else:
                 print(f"未找到匹配的路由: {path}")
@@ -552,6 +552,10 @@ class CustomHandler(BaseHTTPRequestHandler):
                     content = f.read()
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
+                # 添加必要的安全和缓存头
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.send_header('X-Frame-Options', 'SAMEORIGIN')
+                self.send_header('Cache-Control', 'no-cache')
                 self.end_headers()
                 self.wfile.write(content)
                 print("主页加载成功")
@@ -589,7 +593,7 @@ class CustomHandler(BaseHTTPRequestHandler):
         """服务静态文件"""
         try:
             # 从路径中提取文件路径
-            file_path = self.path.replace('/audio/static/', '')
+            file_path = self.path.replace('/static/', '')
             
             # 构建完整的文件路径
             full_path = os.path.join('public', 'static', file_path)
@@ -1023,7 +1027,7 @@ class CustomHandler(BaseHTTPRequestHandler):
                 writer.writerow(['操作时间', '操作类型', '操作者IP', '文件名', '详情'])
                 
                 type_map = {
-                    'upload': '上传',
+                    'upload': '上��',
                     'play': '播放',
                     'delete': '删除',
                     'whitelist_add': '添加白名单',
@@ -1710,7 +1714,7 @@ class DatabaseManager:
         cursor = conn.cursor()
         
         try:
-            # 更新文件状态
+            # 更新文件状
             cursor.execute('''
             UPDATE audio_files 
             SET is_deleted = TRUE, 

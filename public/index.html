@@ -114,74 +114,31 @@
     </div>
 
     <script>
-        function uploadFile() {
-            console.log('开始上传处理...');
-            
-            const fileInput = document.getElementById('fileInput');
-            const file = fileInput.files[0];
-            
-            if (!file) {
-                alert('请选择文件');
-                return;
+        async function uploadFile(file) {
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                uploadStatus.textContent = `正在上传: ${file.name}`;
+                progressBar.style.display = 'block';
+                errorMessage.textContent = '';
+
+                const response = await fetch('/audio/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                // ... 其余代码保持不变
+            } catch (error) {
+                console.error('上传失败:', error);
+                showError('上传失败，请重试');
             }
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            const statusDiv = document.createElement('div');
-            statusDiv.className = 'upload-status';
-            statusDiv.textContent = '正在上传...';
-            document.body.appendChild(statusDiv);
-            
-            fetch('/audio/api/upload', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`上传失败: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                console.log('上传成功:', data);
-                
-                const playUrl = `/audio/voice/${data.filename}`;
-                statusDiv.innerHTML = `
-                    <div class="upload-result">
-                        <p>上传成功!</p>
-                        <p>播放链接: <a href="${playUrl}" target="_blank">${data.filename}</a></p>
-                        <audio controls>
-                            <source src="${playUrl}" type="audio/mpeg">
-                            您的浏览器不支持音频播放
-                        </audio>
-                    </div>
-                `;
-                
-                const historyDiv = document.getElementById('uploadHistory');
-                const historyItem = document.createElement('div');
-                historyItem.className = 'history-item';
-                historyItem.innerHTML = `
-                    <p>文件名: ${data.filename}</p>
-                    <audio controls>
-                        <source src="${playUrl}" type="audio/mpeg">
-                    </audio>
-                    <p>上传时间: ${new Date().toLocaleString()}</p>
-                `;
-                historyDiv.insertBefore(historyItem, historyDiv.querySelector('h2').nextSibling);
-                
-                fileInput.value = '';
-            })
-            .catch(error => {
-                console.error('上传错误:', error);
-                statusDiv.textContent = `上传失败: ${error.message}`;
-                setTimeout(() => statusDiv.remove(), 3000);
-            });
         }
     </script>
 
     <footer class="footer">
-        <p>Audio Server v1.98</p>
+        <p>音频服务器 V2.17</p>
     </footer>
 </body>
 </html>
